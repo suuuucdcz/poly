@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyQuant — Paper Trading Terminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Inter for UI, JetBrains Mono for tabular numbers (terminal feel) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- TradingView Lightweight Charts — financial-grade, free (Apache-2.0) -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+
+        <!-- ===================== TOP BAR ===================== -->
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark">◧</span>
+                <div class="brand-text">
+                    <span class="brand-name">POLYQUANT</span>
+                    <span class="brand-sub">Paper Trading Terminal</span>
+                </div>
+            </div>
+
+            <div class="ticker-strip">
+                <div class="stat stat-primary">
+                    <span class="stat-k">EQUITY</span>
+                    <span class="stat-v mono" id="val-total-equity">1 000.00 $</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-k">ROI</span>
+                    <span class="stat-v mono positive" id="val-roi">+0.00 %</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-k">CASH</span>
+                    <span class="stat-v mono" id="val-cash-balance">1 000.00 $</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-k">WIN</span>
+                    <span class="stat-v mono" id="val-win-rate">—</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-k">TRADES</span>
+                    <span class="stat-v mono" id="val-trades">0 / 0</span>
+                </div>
+            </div>
+
+            <div class="bot-control-mini">
+                <span class="status-dot" id="bot-status-dot"></span>
+                <span class="status-text mono" id="bot-status-text">Arrêté</span>
+                <button id="btn-start-bot" class="btn btn-success btn-sm">▶ START</button>
+                <button id="btn-stop-bot" class="btn btn-danger btn-sm" disabled>■ STOP</button>
+            </div>
+        </header>
+
+        <!-- ===================== TAB NAV ===================== -->
+        <nav class="tabs" id="tab-nav">
+            <button class="tab-btn active" data-tab="overview">Vue d'ensemble</button>
+            <button class="tab-btn" data-tab="crypto">⚡ Crypto Direction</button>
+            <button class="tab-btn" data-tab="markets">Marchés &amp; Trade</button>
+            <button class="tab-btn" data-tab="history">Historique</button>
+        </nav>
+
+        <!-- ===================== TAB: OVERVIEW ===================== -->
+        <section class="tab-panel active" id="tab-overview">
+            <div class="grid-overview">
+
+                <!-- Equity chart -->
+                <div class="panel panel-chart area-chart">
+                    <div class="panel-head">
+                        <h2>Courbe de performance</h2>
+                        <div class="head-right">
+                            <span class="chart-legend">
+                                <span class="lg lg-total">Valeur totale</span>
+                                <span class="lg lg-cash">Solde cash</span>
+                            </span>
+                            <button id="btn-expand-chart" class="btn btn-ghost btn-sm">⛶ Agrandir</button>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <div id="equityChart"></div>
+                    </div>
+                </div>
+
+                <!-- Engine / config -->
+                <div class="panel area-config">
+                    <div class="panel-head"><h2>Moteur &amp; Stratégie</h2></div>
+                    <form id="bot-config-form" onsubmit="event.preventDefault();">
+                        <div class="form-group">
+                            <label for="select-strategy">Stratégie active</label>
+                            <select id="select-strategy" class="form-control">
+                                <option value="hybrid">Hybrid (Arb + Momentum + Value)</option>
+                                <option value="arbitrage">Arbitrage Risk-Free</option>
+                                <option value="momentum">Momentum EMA Crossover</option>
+                                <option value="value">Value / Mean Reversion</option>
+                                <option value="crypto_direction">⚡ Crypto Direction (Up/Down 5m/15m)</option>
+                            </select>
+                        </div>
+                        <div class="form-row" id="config-form-row">
+                            <div class="form-group">
+                                <label for="input-interval">Intervalle (s)</label>
+                                <input type="number" id="input-interval" class="form-control mono" min="2" max="120" value="10">
+                            </div>
+                            <div class="form-group" id="group-scan">
+                                <label for="input-scan-limit">Scan max</label>
+                                <input type="number" id="input-scan-limit" class="form-control mono" min="3" max="25" value="8">
+                            </div>
+                        </div>
+                        <button type="submit" id="btn-save-config" class="btn btn-primary btn-block">Appliquer</button>
+                    </form>
+
+                    <div class="divider"></div>
+
+                    <label class="micro-label">Gestion de capital</label>
+                    <div class="form-inline">
+                        <input type="number" id="input-reset-budget" class="form-control mono" min="50" max="100000" value="1000" placeholder="Budget USDC">
+                        <button id="btn-reset-wallet" class="btn btn-secondary">Reset</button>
+                    </div>
+                </div>
+
+                <!-- Positions -->
+                <div class="panel area-positions">
+                    <div class="panel-head"><h2>Positions actives</h2></div>
+                    <div class="table-wrapper">
+                        <table class="data-table" id="table-positions">
+                            <thead>
+                                <tr>
+                                    <th>Question</th>
+                                    <th>Option</th>
+                                    <th class="num">Parts</th>
+                                    <th class="num">PRU</th>
+                                    <th class="num">Prix</th>
+                                    <th class="num">Valeur</th>
+                                    <th class="num">PnL latent</th>
+                                    <th>Clôture</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="positions-body">
+                                <tr><td colspan="9" class="text-center text-muted">Aucune position ouverte.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Console -->
+                <div class="panel area-console">
+                    <div class="panel-head"><h2>Console d'exécution</h2></div>
+                    <div class="console-box" id="console-output">
+                        <div class="console-line system">[SYSTEM] Console prête. En attente du démarrage du bot…</div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ===================== TAB: CRYPTO DIRECTION ===================== -->
+        <section class="tab-panel" id="tab-crypto">
+            <div class="crypto-banner">
+                <div class="crypto-banner-text">
+                    <h2>⚡ Crypto Direction — Edge en direct</h2>
+                    <p>Marchés « Up/Down » courts (5m / 15m). Spot Binance vs prix d'ouverture →
+                    probabilité <span class="mono">P(up)</span> comparée au carnet Polymarket.
+                    <strong>Paper trading uniquement.</strong></p>
+                </div>
+                <div class="crypto-banner-actions">
+                    <button id="btn-activate-crypto" class="btn btn-primary btn-sm">Activer ce mode</button>
+                    <span class="crypto-learn mono" id="crypto-learn">Apprentissage : 0 pari réglé</span>
+                    <span class="crypto-updated mono" id="crypto-updated"></span>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="table-wrapper">
+                    <table class="data-table crypto-table" id="table-crypto">
+                        <thead>
+                            <tr>
+                                <th>Actif</th>
+                                <th>Fen.</th>
+                                <th class="num">Spot</th>
+                                <th class="num">Ouverture</th>
+                                <th class="num">Δ%</th>
+                                <th class="num">Temps</th>
+                                <th>P(up)</th>
+                                <th class="num">Up / Down</th>
+                                <th class="num">Flux</th>
+                                <th class="num">Edge</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="crypto-signals-body">
+                            <tr><td colspan="11" class="text-center text-muted">En attente du mode « Crypto Direction »…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== TAB: MARKETS & TRADE ===================== -->
+        <section class="tab-panel" id="tab-markets">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Marchés Polymarket actifs</h2>
+                    <button id="btn-refresh-markets" class="btn btn-ghost btn-sm">🔄 Actualiser</button>
+                </div>
+                <div class="search-bar-wrapper">
+                    <input type="text" id="input-market-search" class="form-control" placeholder="Rechercher un contrat (Bitcoin, Election…)">
+                </div>
+                <div class="markets-list" id="markets-container">
+                    <div class="loading-spinner">Chargement des marchés réels Polymarket…</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== TAB: HISTORY ===================== -->
+        <section class="tab-panel" id="tab-history">
+            <div class="panel">
+                <div class="panel-head"><h2>Historique des transactions</h2></div>
+                <div class="history-list" id="history-container">
+                    <div class="text-center text-muted padded">Aucun trade historique enregistré.</div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ===================== MODALS ===================== -->
+    <div id="trade-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" id="modal-close">&times;</span>
+            <h3 id="modal-market-title">Passer un ordre simulé</h3>
+            <p class="modal-outcome-info">Option : <strong id="modal-outcome-name">YES</strong> | Prix indicatif : <span class="mono" id="modal-outcome-price">0.50</span> USDC</p>
+            <div class="form-group">
+                <label for="input-trade-amount">Montant d'investissement (USDC)</label>
+                <input type="number" id="input-trade-amount" class="form-control mono" min="5" max="1000" value="100">
+                <span class="form-help">Solde disponible : <span class="mono" id="modal-user-balance">1000.00</span> USDC</span>
+            </div>
+            <div class="modal-actions">
+                <button id="btn-confirm-trade" class="btn btn-primary">Confirmer l'achat</button>
+                <button id="btn-cancel-trade" class="btn btn-secondary">Annuler</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="chart-modal" class="modal">
+        <div class="modal-content modal-wide">
+            <span class="close-btn" id="chart-modal-close">&times;</span>
+            <h3>Courbe de performance détaillée</h3>
+            <div id="largeEquityChart" style="height: 450px; width: 100%; margin-top: 15px;"></div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.db
+.venv/
+venv/
+.claude/
+# Secrets — ne jamais committer
+.env
+*.env
+!*.env.example
+service_account.json
