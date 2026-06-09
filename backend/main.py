@@ -7,8 +7,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend import bot, config, db, persistence
-from backend.schemas import BotConfigRequest, ResetRequest, TradeRequest
+
+def _load_dotenv():
+    """Charge un fichier .env local dans os.environ s'il existe (avant les imports
+    qui lisent l'environnement). Sur Render, les variables viennent du dashboard et
+    aucun .env n'est présent (il est gitignoré) -> no-op. Les vraies variables
+    d'environnement ont toujours priorité (setdefault)."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for p in (root / ".env", root / "backend" / ".env"):
+        try:
+            if p.exists():
+                for line in p.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        if v.strip():
+                            os.environ.setdefault(k.strip(), v.strip())
+        except Exception:
+            pass
+
+
+_load_dotenv()
+
+from backend import bot, config, db, persistence  # noqa: E402
+from backend.schemas import BotConfigRequest, ResetRequest, TradeRequest  # noqa: E402
 
 app = FastAPI(title="Polymarket Paper Trading Bot")
 
@@ -245,3 +268,25 @@ def serve_index():
     if not os.path.exists(index_path):
         return {"status": "Frontend not ready yet."}
     return FileResponse(index_path)
+
+
+# ---- PWA : manifest + service worker (servis depuis la racine pour le scope "/") ----
+@app.get("/manifest.webmanifest")
+def serve_manifest():
+    return FileResponse(
+        os.path.join(frontend_dir, "manifest.webmanifest"),
+        media_type="application/manifest+json",
+    )
+
+
+@app.get("/sw.js")
+def serve_service_worker():
+    return FileResponse(
+        os.path.join(frontend_dir, "sw.js"),
+        media_type="application/javascript",
+    )
+
+
+@app.get("/favicon.ico")
+def serve_favicon():
+    return FileResponse(os.path.join(frontend_dir, "icon-192.png"), media_type="image/png")

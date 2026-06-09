@@ -1,0 +1,15 @@
+{
+  "name": "PolyQuant — Paper Trading Terminal",
+  "short_name": "PolyQuant",
+  "description": "Bot de paper trading crypto (Polymarket Up/Down) avec apprentissage.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060a12",
+  "theme_color": "#060a12",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,5 +1,12 @@
 // Polymarket Paper Trader - Frontend Controller
 
+// PWA : enregistre le service worker (rend l'app installable sur téléphone)
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // Global State
     let equityChart = null, equityAreaSeries = null, equityCashSeries = null;
