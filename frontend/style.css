@@ -456,3 +456,69 @@ select.form-control { cursor: pointer; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #1c2738; border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: #28374e; }
+
+/* ===================== MOBILE (téléphone) ===================== */
+@media (max-width: 680px) {
+    body { font-size: 13px; }
+    .app { padding: 0 10px 22px; }
+
+    /* Top bar : marque + START/STOP sur une ligne, métriques en dessous */
+    .topbar {
+        flex-wrap: wrap;
+        gap: 10px 12px;
+        padding: 10px 2px;
+    }
+    .brand { order: 1; flex: 1 1 auto; gap: 9px; }
+    .brand-sub { display: none; }
+    .bot-control-mini { order: 2; flex: 0 0 auto; }
+    .status-text { display: none; }
+    .ticker-strip {
+        order: 3;
+        flex: 1 1 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .stat { min-width: 84px; padding: 5px 12px; }
+    .stat-v { font-size: 14px; }
+    .stat-primary .stat-v { font-size: 15px; }
+
+    /* Onglets : défilables horizontalement, jamais coupés */
+    .tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        gap: 2px;
+    }
+    .tabs::-webkit-scrollbar { height: 0; }
+    .tab-btn { flex: 0 0 auto; padding: 10px 13px; font-size: 12.5px; }
+
+    /* Panneaux plus compacts */
+    .panel { padding: 12px; margin-bottom: 12px; }
+    .panel-head h2 { font-size: 11px; }
+    .grid-overview { gap: 12px; }
+    .panel-chart .chart-container { height: 200px; }
+
+    /* Tableaux larges : défilement horizontal, colonnes lisibles (pas écrasées) */
+    .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    #table-crypto { min-width: 700px; }
+    #table-positions { min-width: 640px; }
+
+    /* Bannière crypto : empilée */
+    .crypto-banner { flex-direction: column; align-items: flex-start; gap: 12px; padding: 14px; }
+    .crypto-banner-text h2 { font-size: 15px; }
+    .crypto-banner-actions { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+    /* Marchés : carte empilée (infos au-dessus, prix en dessous) */
+    .market-item { flex-direction: column; align-items: stretch; gap: 10px; }
+    .market-pricing { flex-wrap: wrap; }
+    .price-box { flex: 1 1 auto; }
+
+    /* En-tête du graphe : on masque la légende texte pour gagner de la place */
+    .head-right { gap: 10px; }
+    .chart-legend { display: none; }
+
+    /* Modales : presque plein écran */
+    .modal-content { width: 94%; margin: 18% auto; padding: 20px; }
+    .modal-content.modal-wide { width: 96%; margin: 8% auto; }
+}
