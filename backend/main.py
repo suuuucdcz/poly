@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 
 from fastapi import FastAPI, HTTPException
@@ -31,7 +30,7 @@ def _load_dotenv():
 _load_dotenv()
 
 from backend import bot, config, db, persistence  # noqa: E402
-from backend.schemas import BotConfigRequest, ResetRequest, TradeRequest  # noqa: E402
+from backend.schemas import BotConfigRequest, ResetRequest, SellRequest  # noqa: E402
 
 app = FastAPI(title="Polymarket Paper Trading Bot")
 
@@ -126,8 +125,6 @@ def reset_portfolio(req: ResetRequest):
         if req.budget <= 0:
             raise HTTPException(status_code=400, detail="Budget must be greater than zero.")
         db.reset_portfolio(req.budget)
-        bot_instance.price_histories.clear()
-        bot_instance.peak_prices.clear()
         bot_instance.log(f"Portfolio reset with budget: {req.budget:.2f} USDC", "INFO")
         return {"status": "success", "message": f"Portfolio reset to {req.budget:.2f} USDC"}
     except HTTPException:
@@ -136,55 +133,11 @@ def reset_portfolio(req: ResetRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============================================================
-# MARCHÉS
-# ============================================================
-@app.get("/api/markets")
-async def get_markets():
+@app.post("/api/positions/sell")
+async def sell_position(req: SellRequest):
+    """Vend toute la position (bouton « Vendre tout » du dashboard)."""
     try:
-        markets = await bot_instance.fetch_markets()
-        return markets
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/markets/{market_id}/book")
-async def get_market_book(market_id: str):
-    try:
-        m_details = await bot_instance.fetch_api_json(f"{config.GAMMA_API}/markets/{market_id}")
-
-        clob_token_ids = json.loads(m_details.get("clobTokenIds", "[]"))
-        outcomes = json.loads(m_details.get("outcomes", "[]"))
-
-        if not clob_token_ids or len(clob_token_ids) < 2:
-            raise HTTPException(status_code=400, detail="Market does not support CLOB order book.")
-
-        yes_book = await bot_instance.fetch_book(clob_token_ids[0])
-        no_book = await bot_instance.fetch_book(clob_token_ids[1])
-
-        return {
-            "question": m_details.get("question"),
-            "outcomes": outcomes,
-            "tokens": clob_token_ids,
-            "yes_book": yes_book,
-            "no_book": no_book,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/trade")
-async def execute_manual_trade(req: TradeRequest):
-    try:
-        res = await bot_instance.place_manual_trade(
-            market_id=req.market_id,
-            token_id=req.token_id,
-            action=req.action,
-            outcome=req.outcome,
-            amount_usdc=req.amount_usdc,
-        )
+        res = await bot_instance.sell_position(req.token_id)
         return {"status": "success", "data": res}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -199,7 +152,6 @@ def get_bot_status():
         "is_running": bot_instance.is_running,
         "strategy": bot_instance.strategy,
         "tick_interval": bot_instance.tick_interval,
-        "max_markets_to_scan": bot_instance.max_markets_to_scan,
     }
 
 
@@ -217,18 +169,13 @@ def stop_bot():
 
 @app.post("/api/bot/configure")
 def configure_bot(req: BotConfigRequest):
-    if req.strategy not in config.VALID_STRATEGIES:
-        raise HTTPException(status_code=400, detail="Invalid strategy.")
-    if req.tick_interval < 2:
-        raise HTTPException(status_code=400, detail="Tick interval must be at least 2 seconds.")
-
-    bot_instance.strategy = req.strategy
+    if req.tick_interval < config.MIN_TICK_INTERVAL:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tick interval must be at least {config.MIN_TICK_INTERVAL} seconds.",
+        )
     bot_instance.tick_interval = req.tick_interval
-    bot_instance.max_markets_to_scan = req.max_markets_to_scan
-    bot_instance.log(
-        f"Bot reconfigured: strategy={req.strategy}, interval={req.tick_interval}s, max_scan={req.max_markets_to_scan}",
-        "INFO",
-    )
+    bot_instance.log(f"Bot reconfigured: interval={req.tick_interval}s", "INFO")
     return {"status": "success"}
 
 
@@ -247,10 +194,10 @@ def get_equity_chart_data():
     return {"history": db.get_equity_history()}
 
 
-@app.get("/api/crypto/signals")
-def get_crypto_signals():
-    """Derniers signaux calculés par la stratégie crypto Up/Down (pour le dashboard)."""
-    return bot_instance.get_crypto_signals()
+@app.get("/api/signals")
+def get_signals():
+    """Derniers signaux calculés par la stratégie météo (pour le dashboard)."""
+    return bot_instance.get_signals()
 
 
 # ============================================================

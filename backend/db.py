@@ -211,6 +211,22 @@ def save_position(token_id, market_id, question, outcome, shares, avg_price, cur
             """, (token_id, market_id, question, outcome, shares, avg_price, current_price, end_date, payout_multiplier))
         conn.commit()
 
+def accumulate_position(token_id, market_id, question, outcome, new_shares, new_price, end_date=None):
+    """Ajoute des parts à une position (prix moyen pondéré) ou la crée."""
+    existing = get_position(token_id)
+    if existing and existing["shares"] > 0.0001:
+        old_shares = existing["shares"]
+        old_avg = existing["avg_price"]
+        total_shares = old_shares + new_shares
+        weighted_avg = ((old_shares * old_avg) + (new_shares * new_price)) / total_shares
+        if end_date is None:
+            end_date = existing.get("end_date")
+        save_position(token_id, market_id, question, outcome, total_shares, weighted_avg, new_price, end_date)
+        return total_shares, weighted_avg
+    save_position(token_id, market_id, question, outcome, new_shares, new_price, new_price, end_date)
+    return new_shares, new_price
+
+
 def update_position_price(token_id, new_price):
     with get_db() as conn:
         cursor = conn.cursor()

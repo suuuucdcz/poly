@@ -15,7 +15,7 @@ CITIES = {
     "tokyo": (35.690, 139.700),
     "singapore": (1.359, 103.989),      # Changi
     "dubai": (25.253, 55.364),          # DXB
-    "london": (51.477, -0.461),         # Heathrow
+    "london": (51.505, 0.055),          # London City Airport (EGLC) — station officielle du marché
     "paris": (48.724, 2.379),           # Orly
     "amsterdam": (52.318, 4.790),       # Schiphol
     "berlin": (52.366, 13.503),         # BER

@@ -69,8 +69,6 @@
         <nav class="tabs" id="tab-nav">
             <button class="tab-btn active" data-tab="overview">Vue d'ensemble</button>
             <button class="tab-btn" data-tab="weather">🌡️ Météo</button>
-            <button class="tab-btn" data-tab="crypto">⚡ Crypto Direction</button>
-            <button class="tab-btn" data-tab="markets">Marchés &amp; Trade</button>
             <button class="tab-btn" data-tab="history">Historique</button>
         </nav>
 
@@ -97,28 +95,11 @@
 
                 <!-- Engine / config -->
                 <div class="panel area-config">
-                    <div class="panel-head"><h2>Moteur &amp; Stratégie</h2></div>
+                    <div class="panel-head"><h2>Réglages du moteur</h2></div>
                     <form id="bot-config-form" onsubmit="event.preventDefault();">
                         <div class="form-group">
-                            <label for="select-strategy">Stratégie active</label>
-                            <select id="select-strategy" class="form-control">
-                                <option value="hybrid">Hybrid (Arb + Momentum + Value)</option>
-                                <option value="arbitrage">Arbitrage Risk-Free</option>
-                                <option value="momentum">Momentum EMA Crossover</option>
-                                <option value="value">Value / Mean Reversion</option>
-                                <option value="crypto_direction">⚡ Crypto Direction (Up/Down 5m/15m)</option>
-                                <option value="weather">🌡️ Weather Edge (température)</option>
-                            </select>
-                        </div>
-                        <div class="form-row" id="config-form-row">
-                            <div class="form-group">
-                                <label for="input-interval">Intervalle (s)</label>
-                                <input type="number" id="input-interval" class="form-control mono" min="2" max="120" value="10">
-                            </div>
-                            <div class="form-group" id="group-scan">
-                                <label for="input-scan-limit">Scan max</label>
-                                <input type="number" id="input-scan-limit" class="form-control mono" min="3" max="25" value="8">
-                            </div>
+                            <label for="input-interval">Intervalle d'analyse (s)</label>
+                            <input type="number" id="input-interval" class="form-control mono" min="10" max="600" value="60">
                         </div>
                         <button type="submit" id="btn-save-config" class="btn btn-primary btn-block">Appliquer</button>
                     </form>
@@ -168,48 +149,6 @@
             </div>
         </section>
 
-        <!-- ===================== TAB: CRYPTO DIRECTION ===================== -->
-        <section class="tab-panel" id="tab-crypto">
-            <div class="crypto-banner">
-                <div class="crypto-banner-text">
-                    <h2>⚡ Crypto Direction — Edge en direct</h2>
-                    <p>Marchés « Up/Down » courts (5m / 15m). Spot Binance vs prix d'ouverture →
-                    probabilité <span class="mono">P(up)</span> comparée au carnet Polymarket.
-                    <strong>Paper trading uniquement.</strong></p>
-                </div>
-                <div class="crypto-banner-actions">
-                    <button id="btn-activate-crypto" class="btn btn-primary btn-sm">Activer ce mode</button>
-                    <span class="crypto-learn mono" id="crypto-learn">Apprentissage : 0 pari réglé</span>
-                    <span class="crypto-updated mono" id="crypto-updated"></span>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="table-wrapper">
-                    <table class="data-table crypto-table" id="table-crypto">
-                        <thead>
-                            <tr>
-                                <th>Actif</th>
-                                <th>Fen.</th>
-                                <th class="num">Spot</th>
-                                <th class="num">Ouverture</th>
-                                <th class="num">Δ%</th>
-                                <th class="num">Temps</th>
-                                <th>P(up)</th>
-                                <th class="num">Up / Down</th>
-                                <th class="num">Flux</th>
-                                <th class="num">Edge</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="crypto-signals-body">
-                            <tr><td colspan="11" class="text-center text-muted">En attente du mode « Crypto Direction »…</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
         <!-- ===================== TAB: MÉTÉO ===================== -->
         <section class="tab-panel" id="tab-weather">
             <div class="crypto-banner">
@@ -218,28 +157,11 @@
                     <p>Distribution d'ensemble (GFS + ICON + ECMWF) du <strong>max du jour</strong> → probabilité par tranche, comparée au prix Polymarket. On achète les <strong>tranches sous-évaluées</strong> (jamais les favoris chers). <strong>Paper trading.</strong></p>
                 </div>
                 <div class="crypto-banner-actions">
-                    <button id="btn-activate-weather" class="btn btn-primary btn-sm">Activer ce mode</button>
                     <span class="crypto-learn mono" id="weather-learn">Apprentissage : 0 pari réglé</span>
                 </div>
             </div>
             <div class="weather-list" id="weather-container">
                 <div class="text-center text-muted padded">En attente du mode « Météo »…</div>
-            </div>
-        </section>
-
-        <!-- ===================== TAB: MARKETS & TRADE ===================== -->
-        <section class="tab-panel" id="tab-markets">
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>Marchés Polymarket actifs</h2>
-                    <button id="btn-refresh-markets" class="btn btn-ghost btn-sm">🔄 Actualiser</button>
-                </div>
-                <div class="search-bar-wrapper">
-                    <input type="text" id="input-market-search" class="form-control" placeholder="Rechercher un contrat (Bitcoin, Election…)">
-                </div>
-                <div class="markets-list" id="markets-container">
-                    <div class="loading-spinner">Chargement des marchés réels Polymarket…</div>
-                </div>
             </div>
         </section>
 
@@ -256,23 +178,6 @@
     </div>
 
     <!-- ===================== MODALS ===================== -->
-    <div id="trade-modal" class="modal">
-        <div class="modal-content">
-            <span class="close-btn" id="modal-close">&times;</span>
-            <h3 id="modal-market-title">Passer un ordre simulé</h3>
-            <p class="modal-outcome-info">Option : <strong id="modal-outcome-name">YES</strong> | Prix indicatif : <span class="mono" id="modal-outcome-price">0.50</span> USDC</p>
-            <div class="form-group">
-                <label for="input-trade-amount">Montant d'investissement (USDC)</label>
-                <input type="number" id="input-trade-amount" class="form-control mono" min="5" max="1000" value="100">
-                <span class="form-help">Solde disponible : <span class="mono" id="modal-user-balance">1000.00</span> USDC</span>
-            </div>
-            <div class="modal-actions">
-                <button id="btn-confirm-trade" class="btn btn-primary">Confirmer l'achat</button>
-                <button id="btn-cancel-trade" class="btn btn-secondary">Annuler</button>
-            </div>
-        </div>
-    </div>
-
     <div id="chart-modal" class="modal">
         <div class="modal-content modal-wide">
             <span class="close-btn" id="chart-modal-close">&times;</span>

@@ -7,15 +7,9 @@ class ResetRequest(BaseModel):
     budget: float
 
 
-class TradeRequest(BaseModel):
-    market_id: str
+class SellRequest(BaseModel):
     token_id: str
-    action: str  # BUY ou SELL
-    outcome: str
-    amount_usdc: float
 
 
 class BotConfigRequest(BaseModel):
-    strategy: str
     tick_interval: int
-    max_markets_to_scan: int

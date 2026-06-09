@@ -1,4 +1,4 @@
-// Polymarket Paper Trader - Frontend Controller
+// PolyQuant — Weather Edge — Frontend Controller
 
 // PWA : enregistre le service worker (rend l'app installable sur téléphone)
 if ("serviceWorker" in navigator) {
@@ -8,19 +8,17 @@ if ("serviceWorker" in navigator) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    // Global State
+    // ===================== ÉTAT GLOBAL =====================
     let equityChart = null, equityAreaSeries = null, equityCashSeries = null;
     let largeChart = null, largeAreaSeries = null, largeCashSeries = null;
-    let cachedMarkets = [];
-    let currentModalData = null; // Store data for manual trade modal
-    let recentLogsText = "";     // Store concatenated logs to avoid excessive DOM re-renders
-    let recentPositionsStr = ""; // Prevent redundant positions rendering
-    let recentTradesStr = "";    // Prevent redundant trades rendering
-    let recentEquityStr = "";    // Prevent redundant equity chart updates
-    let recentMarketsStr = "";   // Prevent redundant markets rendering
-    let cachedEquityHistory = []; // Store raw equity history data
+    let recentLogsText = "";
+    let recentPositionsStr = "";
+    let recentTradesStr = "";
+    let recentEquityStr = "";
+    let recentWeatherStr = "";
+    let cachedEquityHistory = [];
 
-    // DOM Elements
+    // ===================== DOM =====================
     const valTotalEquity = document.getElementById("val-total-equity");
     const valRoi = document.getElementById("val-roi");
     const valCashBalance = document.getElementById("val-cash-balance");
@@ -32,68 +30,54 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnStartBot = document.getElementById("btn-start-bot");
     const btnStopBot = document.getElementById("btn-stop-bot");
 
-    const selectStrategy = document.getElementById("select-strategy");
     const inputInterval = document.getElementById("input-interval");
-    const inputScanLimit = document.getElementById("input-scan-limit");
     const btnSaveConfig = document.getElementById("btn-save-config");
-
     const inputResetBudget = document.getElementById("input-reset-budget");
     const btnResetWallet = document.getElementById("btn-reset-wallet");
 
     const positionsBody = document.getElementById("positions-body");
-    const marketsContainer = document.getElementById("markets-container");
-    const btnRefreshMarkets = document.getElementById("btn-refresh-markets");
-    const inputMarketSearch = document.getElementById("input-market-search");
-
     const consoleOutput = document.getElementById("console-output");
     const historyContainer = document.getElementById("history-container");
+    const weatherContainer = document.getElementById("weather-container");
 
-    // Modal DOM Elements
-    const tradeModal = document.getElementById("trade-modal");
-    const modalClose = document.getElementById("modal-close");
-    const modalMarketTitle = document.getElementById("modal-market-title");
-    const modalOutcomeName = document.getElementById("modal-outcome-name");
-
-    // Large Chart Modal DOM Elements
     const btnExpandChart = document.getElementById("btn-expand-chart");
     const chartModal = document.getElementById("chart-modal");
     const chartModalClose = document.getElementById("chart-modal-close");
-    const modalOutcomePrice = document.getElementById("modal-outcome-price");
-    const inputTradeAmount = document.getElementById("input-trade-amount");
-    const modalUserBalance = document.getElementById("modal-user-balance");
-    const btnConfirmTrade = document.getElementById("btn-confirm-trade");
-    const btnCancelTrade = document.getElementById("btn-cancel-trade");
 
-    // --- INITIALIZATION ---
+    // ===================== INIT =====================
     initChart();
     fetchPortfolio();
     fetchBotStatus();
-    fetchMarkets();
     fetchLogs();
     fetchTrades();
     fetchEquityHistory();
-    fetchCryptoSignals();
+    fetchSignals();
 
-    // Start Polling Intervals (500ms for constant dashboard feedback)
-    setInterval(pollFastData, 500);
-    // Fetch markets list frequently since the backend serves it from a fast 5s memory cache (every 1 second)
-    setInterval(fetchMarkets, 1000);
-    // Crypto Up/Down signals (countdown moves every second)
-    setInterval(fetchCryptoSignals, 1000);
+    // Le bot météo tourne sur un tick de ~60s : pas besoin de marteler l'API.
+    setInterval(pollFastData, 2000);
+    setInterval(fetchSignals, 10000);
 
-    // --- EVENT LISTENERS ---
+    // ===================== NAVIGATION ONGLETS =====================
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const tab = btn.getAttribute("data-tab");
+            document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+            document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tab));
+            window.dispatchEvent(new Event("resize"));
+        });
+    });
 
-    // Bot Control
+    // ===================== CONTRÔLES BOT =====================
     btnStartBot.addEventListener("click", async () => {
         try {
             const res = await fetch("/api/bot/start", { method: "POST" });
             const data = await res.json();
             if (data.status === "success" || data.status === "already_running") {
                 updateBotStatusUI(true);
-                addConsoleLine("Robot DÉMARRÉ avec succès.", "success");
+                addConsoleLine("Robot DÉMARRÉ.", "success");
             }
         } catch (e) {
-            addConsoleLine("Erreur lors du démarrage du bot: " + e.message, "error");
+            addConsoleLine("Erreur au démarrage: " + e.message, "error");
         }
     });
 
@@ -103,19 +87,16 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             if (data.status === "success" || data.status === "already_stopped") {
                 updateBotStatusUI(false);
-                addConsoleLine("Robot ARRÊTÉ avec succès.", "warning");
+                addConsoleLine("Robot ARRÊTÉ.", "warning");
             }
         } catch (e) {
-            addConsoleLine("Erreur lors de l'arrêt du bot: " + e.message, "error");
+            addConsoleLine("Erreur à l'arrêt: " + e.message, "error");
         }
     });
 
-    // Save Bot Config
     btnSaveConfig.addEventListener("click", async () => {
         const payload = {
-            strategy: selectStrategy.value,
-            tick_interval: parseInt(inputInterval.value, 10),
-            max_markets_to_scan: parseInt(inputScanLimit.value, 10)
+            tick_interval: Math.max(10, parseInt(inputInterval.value, 10) || 60)
         };
         try {
             const res = await fetch("/api/bot/configure", {
@@ -124,7 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify(payload)
             });
             if (res.ok) {
-                addConsoleLine(`Configuration appliquée: ${payload.strategy} | Ticks: ${payload.tick_interval}s`, "info");
+                addConsoleLine(`Réglages appliqués (analyse toutes les ${payload.tick_interval}s).`, "info");
             } else {
                 const err = await res.json();
                 addConsoleLine("Échec de la configuration: " + err.detail, "error");
@@ -134,14 +115,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Reset Portfolio
     btnResetWallet.addEventListener("click", async () => {
         const budget = parseFloat(inputResetBudget.value);
         if (isNaN(budget) || budget <= 0) {
             alert("Veuillez saisir un budget valide.");
             return;
         }
-        if (!confirm(`Voulez-vous réinitialiser le portefeuille avec ${budget.toFixed(2)} USDC ? Toutes les positions et historiques seront effacés.`)) {
+        if (!confirm(`Réinitialiser le portefeuille à ${budget.toFixed(2)} USDC ? Positions et historique seront effacés.`)) {
             return;
         }
         try {
@@ -151,7 +131,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 body: JSON.stringify({ budget })
             });
             if (res.ok) {
-                addConsoleLine(`Portefeuille réinitialisé avec ${budget.toFixed(2)} USDC.`, "info");
+                addConsoleLine(`Portefeuille réinitialisé à ${budget.toFixed(2)} USDC.`, "info");
+                recentEquityStr = ""; recentPositionsStr = ""; recentTradesStr = "";
                 fetchPortfolio();
                 fetchEquityHistory();
                 fetchTrades();
@@ -161,152 +142,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Refresh Markets button
-    btnRefreshMarkets.addEventListener("click", () => {
-        fetchMarkets();
-    });
-
-    // Search filter
-    inputMarketSearch.addEventListener("input", () => {
-        renderMarketsList();
-    });
-
-    // Close Modal Events
-    modalClose.addEventListener("click", closeModal);
-    btnCancelTrade.addEventListener("click", closeModal);
-    window.addEventListener("click", (e) => {
-        if (e.target === tradeModal) closeModal();
-        if (e.target === chartModal) {
-            chartModal.style.display = "none";
-        }
-    });
-
-    // Expand Chart Modal Events
+    // ===================== MODALE GRAPHE =====================
     btnExpandChart.addEventListener("click", () => {
         chartModal.style.display = "block";
-        if (!largeChart) {
-            initLargeChart();
-        }
+        if (!largeChart) initLargeChart();
         renderLargeChartData();
     });
-
-    chartModalClose.addEventListener("click", () => {
-        chartModal.style.display = "none";
+    chartModalClose.addEventListener("click", () => { chartModal.style.display = "none"; });
+    window.addEventListener("click", (e) => {
+        if (e.target === chartModal) chartModal.style.display = "none";
     });
 
-    // Confirm Trade Event
-    btnConfirmTrade.addEventListener("click", async () => {
-        if (!currentModalData) return;
-        const amount = parseFloat(inputTradeAmount.value);
-        if (isNaN(amount) || amount < 5) {
-            alert("Le montant minimum d'investissement est de 5 USDC.");
-            return;
-        }
-        
-        btnConfirmTrade.disabled = true;
-        btnConfirmTrade.innerText = "Traitement...";
-        
-        const payload = {
-            market_id: currentModalData.marketId,
-            token_id: currentModalData.tokenId,
-            action: "BUY",
-            outcome: currentModalData.outcomeName,
-            amount_usdc: amount
-        };
-
-        try {
-            const res = await fetch("/api/trade", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-            const data = await res.json();
-            
-            if (res.ok) {
-                addConsoleLine(`Achat manuel réussi : ${data.data.shares} parts de ${payload.outcome} à ${data.data.price} USDC.`, "success");
-                closeModal();
-                fetchPortfolio();
-                fetchTrades();
-                fetchEquityHistory();
-            } else {
-                alert("Erreur : " + data.detail);
-                addConsoleLine("Échec de l'ordre manuel: " + data.detail, "error");
-            }
-        } catch (e) {
-            alert("Erreur réseau: " + e.message);
-        } finally {
-            btnConfirmTrade.disabled = false;
-            btnConfirmTrade.innerText = "Confirmer l'achat";
-        }
-    });
-
-    // Tab navigation
-    document.querySelectorAll(".tab-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
-            const tab = btn.getAttribute("data-tab");
-            document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
-            document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + tab));
-            // Charts inside a freshly-shown panel need a resize to fit
-            window.dispatchEvent(new Event("resize"));
-        });
-    });
-
-    // "Activer ce mode" shortcut on the Crypto tab → switch strategy to crypto_direction
-    const btnActivateCrypto = document.getElementById("btn-activate-crypto");
-    if (btnActivateCrypto) {
-        btnActivateCrypto.addEventListener("click", async () => {
-            const payload = {
-                strategy: "crypto_direction",
-                tick_interval: Math.max(2, parseInt(inputInterval.value, 10) || 2),
-                max_markets_to_scan: parseInt(inputScanLimit.value, 10) || 8
-            };
-            try {
-                const res = await fetch("/api/bot/configure", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-                if (res.ok) {
-                    selectStrategy.value = "crypto_direction";
-                    if (parseInt(inputInterval.value, 10) > 5) inputInterval.value = payload.tick_interval;
-                    addConsoleLine("Mode Crypto Direction activé (intervalle " + payload.tick_interval + "s).", "success");
-                } else {
-                    const err = await res.json();
-                    addConsoleLine("Échec activation crypto: " + err.detail, "error");
-                }
-            } catch (e) {
-                addConsoleLine("Erreur activation crypto: " + e.message, "error");
-            }
-        });
-    }
-
-    // "Activer ce mode" sur l'onglet Météo
-    const btnActivateWeather = document.getElementById("btn-activate-weather");
-    if (btnActivateWeather) {
-        btnActivateWeather.addEventListener("click", async () => {
-            try {
-                const res = await fetch("/api/bot/configure", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ strategy: "weather", tick_interval: 60, max_markets_to_scan: 8 })
-                });
-                if (res.ok) {
-                    selectStrategy.value = "weather";
-                    inputInterval.value = 60;
-                    addConsoleLine("Mode Weather Edge activé.", "success");
-                } else {
-                    const err = await res.json();
-                    addConsoleLine("Échec activation météo: " + err.detail, "error");
-                }
-            } catch (e) {
-                addConsoleLine("Erreur activation météo: " + e.message, "error");
-            }
-        });
-    }
-
-    // --- FUNCTIONS ---
-
-    // Polling fast changing data (1.5 seconds)
+    // ===================== POLLING =====================
     function pollFastData() {
         fetchPortfolio();
         fetchBotStatus();
@@ -315,52 +162,38 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchEquityHistory();
     }
 
-    // Fetch and render portfolio metrics + positions table
+    // ===================== PORTEFEUILLE & POSITIONS =====================
     async function fetchPortfolio() {
         try {
             const res = await fetch("/api/portfolio");
             if (!res.ok) return;
             const data = await res.json();
 
-            // Set Header metrics
             valTotalEquity.innerText = formatUSD(data.total_valuation);
             valCashBalance.innerText = formatUSD(data.balance);
-            
-            const roiText = (data.roi >= 0 ? "+" : "") + data.roi.toFixed(2) + " %";
-            valRoi.innerText = roiText;
-            valRoi.className = "metric-value " + (data.roi >= 0 ? "positive" : "negative");
-            
-            if (data.win_rate === null || data.win_rate === undefined) {
-                valWinRate.innerText = "—";
-            } else {
-                valWinRate.innerText = data.win_rate.toFixed(1) + " %";
-            }
-            
+
+            valRoi.innerText = (data.roi >= 0 ? "+" : "") + data.roi.toFixed(2) + " %";
+            valRoi.className = "stat-v mono " + (data.roi >= 0 ? "positive" : "negative");
+
+            valWinRate.innerText = (data.win_rate == null) ? "—" : data.win_rate.toFixed(1) + " %";
+
             if (valTrades) {
-                const settled = (data.settled_trade_count != null) ? data.settled_trade_count : 0;
-                const total = (data.trade_count != null) ? data.trade_count : 0;
-                valTrades.innerText = settled + " / " + total;
+                valTrades.innerText = (data.settled_trade_count || 0) + " / " + (data.trade_count || 0);
             }
 
-            // Render Positions Table
             renderPositions(data.positions);
         } catch (e) {
             console.error("Error fetching portfolio:", e);
         }
     }
 
-    // Render active positions in table
     function renderPositions(positions) {
         const positionsStr = JSON.stringify(positions);
         if (positionsStr === recentPositionsStr) return;
         recentPositionsStr = positionsStr;
 
         if (!positions || positions.length === 0) {
-            positionsBody.innerHTML = `
-                <tr>
-                    <td colspan="9" class="text-center text-muted">Aucune position ouverte actuellement.</td>
-                </tr>
-            `;
+            positionsBody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">Aucune position ouverte actuellement.</td></tr>`;
             return;
         }
 
@@ -370,58 +203,44 @@ document.addEventListener("DOMContentLoaded", () => {
             const cost = pos.shares * pos.avg_price;
             const pnl = value - cost;
             const pnlPercent = cost > 0 ? (pnl / cost) * 100 : 0.0;
-            
             const pnlClass = pnl >= 0 ? "pnl-positive" : "pnl-negative";
             const pnlSign = pnl >= 0 ? "+" : "";
 
             html += `
                 <tr>
                     <td class="col-question" title="${escapeHTML(pos.question)}"><strong>${escapeHTML(pos.question)}</strong></td>
-                    <td><span class="history-action ${pos.outcome.toLowerCase() === 'yes' ? 'buy' : 'sell'}">${pos.outcome}</span></td>
+                    <td><span class="history-action buy">${escapeHTML(pos.outcome)}</span></td>
                     <td>${pos.shares.toFixed(1)}</td>
                     <td>${pos.avg_price.toFixed(2)}&nbsp;$</td>
                     <td>${pos.current_price.toFixed(2)}&nbsp;$</td>
                     <td><strong>${value.toFixed(2)}&nbsp;$</strong></td>
                     <td class="${pnlClass}"><strong>${pnlSign}${pnl.toFixed(2)}&nbsp;$ (${pnlSign}${pnlPercent.toFixed(1)}%)</strong></td>
                     <td class="end-date-cell">${formatDateTime(pos.end_date)}</td>
-                    <td>
-                        <button class="btn btn-small btn-danger btn-close-pos" data-token="${pos.token_id}" data-outcome="${pos.outcome}">Vendre tout</button>
-                    </td>
+                    <td><button class="btn btn-small btn-danger btn-close-pos" data-token="${pos.token_id}" data-outcome="${pos.outcome}">Vendre tout</button></td>
                 </tr>
             `;
         });
         positionsBody.innerHTML = html;
 
-        // Add event listeners to "Close Position" buttons
         document.querySelectorAll(".btn-close-pos").forEach(btn => {
-            btn.addEventListener("click", async (e) => {
+            btn.addEventListener("click", async () => {
                 const tokenId = btn.getAttribute("data-token");
                 const outcomeName = btn.getAttribute("data-outcome");
-                if (!confirm(`Voulez-vous vendre la totalité de votre position sur '${outcomeName}' au prix du marché (meilleur bid) ?`)) {
-                    return;
-                }
-                
+                if (!confirm(`Vendre toute la position '${outcomeName}' au meilleur prix du carnet ?`)) return;
                 btn.disabled = true;
                 btn.innerText = "Vente...";
-                
                 try {
-                    const res = await fetch("/api/trade", {
+                    const res = await fetch("/api/positions/sell", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            market_id: "_", // Will be inferred by token ID on backend
-                            token_id: tokenId,
-                            action: "SELL",
-                            outcome: outcomeName,
-                            amount_usdc: 0.0
-                        })
+                        body: JSON.stringify({ token_id: tokenId })
                     });
                     const data = await res.json();
                     if (res.ok) {
-                        addConsoleLine(`Vente de position réussie : ${data.data.shares} parts de ${outcomeName} vendues à ${data.data.price} USDC. PnL: ${data.data.pnl >= 0 ? '+' : ''}${data.data.pnl.toFixed(2)} USDC.`, "success");
+                        addConsoleLine(`Vente : ${data.data.shares} parts @ ${data.data.price} — PnL ${data.data.pnl >= 0 ? "+" : ""}${data.data.pnl.toFixed(2)} USDC.`, "success");
+                        recentPositionsStr = "";
                         fetchPortfolio();
                         fetchTrades();
-                        fetchEquityHistory();
                     } else {
                         alert("Erreur de vente: " + data.detail);
                     }
@@ -432,38 +251,14 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Fetch and update Bot Status controls
+    // ===================== STATUT BOT =====================
     async function fetchBotStatus() {
         try {
             const res = await fetch("/api/bot/status");
             if (!res.ok) return;
             const data = await res.json();
-
             updateBotStatusUI(data.is_running);
-
-            // Sync values if form is not active/dirty
-            if (document.activeElement !== selectStrategy) selectStrategy.value = data.strategy;
             if (document.activeElement !== inputInterval) inputInterval.value = data.tick_interval;
-            if (document.activeElement !== inputScanLimit) inputScanLimit.value = data.max_markets_to_scan;
-
-            // "Activer ce mode" reflects current strategy: badge when already active,
-            // real action only when another strategy is selected.
-            // Boutons "Activer ce mode" (crypto + météo) reflètent la stratégie active
-            [["btn-activate-crypto", "crypto_direction"], ["btn-activate-weather", "weather"]].forEach(([id, strat]) => {
-                const b = document.getElementById(id);
-                if (!b) return;
-                const on = data.strategy === strat;
-                b.disabled = on;
-                b.textContent = on ? "✓ Mode actif" : "Activer ce mode";
-                b.classList.toggle("btn-active-on", on);
-            });
-
-            // "Scan max" n'affecte que Momentum/Value — caché en mode crypto/météo
-            const hideScan = data.strategy === "crypto_direction" || data.strategy === "weather";
-            const gScan = document.getElementById("group-scan");
-            const fRow = document.getElementById("config-form-row");
-            if (gScan) gScan.style.display = hideScan ? "none" : "";
-            if (fRow) fRow.classList.toggle("single", hideScan);
         } catch (e) {
             console.error("Error fetching bot status:", e);
         }
@@ -472,154 +267,139 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateBotStatusUI(isRunning) {
         if (isRunning) {
             botStatusDot.className = "status-dot active";
-            botStatusText.innerText = "Actif (analyse en cours)";
+            botStatusText.innerText = "Actif";
             btnStartBot.disabled = true;
             btnStopBot.disabled = false;
         } else {
             botStatusDot.className = "status-dot";
-            botStatusText.innerText = "Arrêté (veille)";
+            botStatusText.innerText = "Arrêté";
             btnStartBot.disabled = false;
             btnStopBot.disabled = true;
         }
     }
 
-    // Fetch real-time active markets from backend API
-    async function fetchMarkets() {
+    // ===================== SIGNAUX MÉTÉO =====================
+    async function fetchSignals() {
         try {
-            const res = await fetch("/api/markets");
+            const res = await fetch("/api/signals");
             if (!res.ok) return;
             const data = await res.json();
-            
-            const marketsStr = JSON.stringify(data);
-            if (marketsStr === recentMarketsStr) return;
-            recentMarketsStr = marketsStr;
-            
-            cachedMarkets = data;
-            renderMarketsList();
+            renderWeather(data.weather || [], data.updated_at || 0);
+            renderLearning(data.learning);
         } catch (e) {
-            marketsContainer.innerHTML = `<div class="text-center text-muted">Erreur lors de la récupération des marchés.</div>`;
+            // silencieux : le panneau se remplira au prochain tick
         }
     }
 
-    // Filter and render markets
-    function renderMarketsList() {
-        if (cachedMarkets.length === 0) {
-            marketsContainer.innerHTML = `<div class="text-center text-muted padded">Aucun marché actif disponible.</div>`;
-            return;
-        }
+    function renderLearning(l) {
+        const el = document.getElementById("weather-learn");
+        if (!el) return;
+        if (!l) { el.innerText = ""; return; }
+        const winrate = l.samples ? Math.round(100 * l.wins / l.samples) + "% win" : "—";
+        const pnl = (l.pnl >= 0 ? "+" : "") + (l.pnl || 0).toFixed(2) + " $";
+        const mode = l.calibrated ? "calibration ACTIVE" : "calibration en attente de données";
+        el.classList.toggle("on", !!l.calibrated);
+        el.innerText = `Apprentissage : ${l.samples} paris réglés · ${winrate} · PnL ${pnl} · ${mode}`;
+    }
 
-        const searchQuery = inputMarketSearch.value.toLowerCase().trim();
-        const filtered = cachedMarkets.filter(m => {
-            return m.question.toLowerCase().includes(searchQuery);
-        });
+    function renderWeather(events, updatedAt) {
+        if (!weatherContainer) return;
+        const str = JSON.stringify(events);
+        if (str === recentWeatherStr) return;
+        recentWeatherStr = str;
 
-        if (filtered.length === 0) {
-            marketsContainer.innerHTML = `<div class="text-center text-muted padded">Aucun marché ne correspond à votre recherche.</div>`;
+        if (!events.length) {
+            weatherContainer.innerHTML = `<div class="text-center text-muted padded">Aucun marché température exploitable pour l'instant — le bot scanne en continu (les villes du lendemain apparaissent au fil de la journée).</div>`;
             return;
         }
 
         let html = "";
-        filtered.forEach(m => {
-            let outcomes = ["YES", "NO"];
-            let prices = ["0.50", "0.50"];
-            let clobTokens = [];
-            
-            try {
-                outcomes = JSON.parse(m.outcomes);
-                prices = JSON.parse(m.outcomePrices);
-                clobTokens = JSON.parse(m.clobTokenIds);
-            } catch (err) {
-                // Keep default if parse fails
-            }
 
-            const volFormatted = formatNumber(parseFloat(m.volumeNum || m.volume || 0));
-
-            // Generate price boxes dynamically for N outcomes
-            let priceBoxesHtml = "";
-            for (let i = 0; i < outcomes.length; i++) {
-                const outcomeName = outcomes[i];
-                const price = prices[i] || "0.00";
-                const tokenId = clobTokens[i];
-                if (!tokenId) continue;
-                
-                let colorClass = "yes-color";
-                if (outcomeName.toLowerCase() === "no") {
-                    colorClass = "no-color";
-                } else if (i > 0 && outcomeName.toLowerCase() !== "yes") {
-                    colorClass = "no-color";
-                }
-                
-                priceBoxesHtml += `
-                    <div class="price-box" data-market-id="${m.id}" data-token-id="${tokenId}" data-outcome-name="${outcomeName}" data-outcome-price="${price}" data-market-title="${m.question.replace(/"/g, '&quot;')}">
-                        <span class="price-box-outcome">${escapeHTML(outcomeName)}</span>
-                        <span class="price-box-value ${colorClass}">${Math.round(parseFloat(price)*100)}¢</span>
-                    </div>
-                `;
-            }
-
-            html += `
-                <div class="market-item">
-                    <div class="market-info">
-                        <div class="market-question">${escapeHTML(m.question)}</div>
-                        <div class="market-meta">
-                            <span>Vol: <strong class="market-volume">${volFormatted} $</strong></span>
-                            <span>Liquidité: <strong>${formatNumber(parseFloat(m.liquidityNum || m.liquidity || 0))} $</strong></span>
-                        </div>
-                    </div>
-                    <div class="market-pricing">
-                        ${priceBoxesHtml}
-                    </div>
-                </div>
-            `;
-        });
-        
-        marketsContainer.innerHTML = html;
-
-        // Event listener for placing a manual order (clicking on price blocks)
-        document.querySelectorAll(".price-box").forEach(box => {
-            box.addEventListener("click", () => {
-                const marketId = box.getAttribute("data-market-id");
-                const tokenId = box.getAttribute("data-token-id");
-                const outcomeName = box.getAttribute("data-outcome-name");
-                const outcomePrice = box.getAttribute("data-outcome-price");
-                const marketTitle = box.getAttribute("data-market-title");
-                
-                openTradeModal(marketId, tokenId, outcomeName, outcomePrice, marketTitle);
+        // --- 1. Paris en cours (toutes villes confondues) ---
+        const bets = [];
+        events.forEach(ev => (ev.buckets || []).forEach(b => {
+            if (b.held_shares > 0) bets.push({ ev, b });
+        }));
+        if (bets.length) {
+            let rows = "";
+            bets.forEach(({ ev, b }) => {
+                const value = b.held_shares * b.price;
+                const cost = b.held_shares * (b.held_avg || b.price);
+                const pnl = value - cost;
+                const cls = pnl >= 0 ? "pnl-positive" : "pnl-negative";
+                rows += `<tr>
+                    <td><strong>${escapeHTML(cap(ev.city))}</strong> <span class="text-muted">· ${escapeHTML(ev.date || "")}</span></td>
+                    <td><span class="history-action buy">${escapeHTML(b.label)}</span></td>
+                    <td class="num mono">${b.held_shares.toFixed(1)} @ ${(b.held_avg || 0).toFixed(2)}</td>
+                    <td class="num mono">${Math.round(b.price * 100)}¢</td>
+                    <td class="num mono">${value.toFixed(2)} $</td>
+                    <td class="num mono ${cls}"><strong>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} $</strong></td>
+                </tr>`;
             });
+            html += `<div class="panel weather-bets">
+                <div class="panel-head"><h2>🎯 Paris en cours (${bets.length})</h2></div>
+                <div class="table-wrapper"><table class="data-table">
+                    <thead><tr><th>Ville · Date</th><th>Tranche pariée</th><th class="num">Parts @ prix</th><th class="num">Prix actuel</th><th class="num">Valeur</th><th class="num">PnL latent</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>
+            </div>`;
+        }
+
+        // --- 2. Une carte par ville/marché : prévision + tranches ---
+        events.forEach(ev => {
+            const u = "°" + (ev.unit || "C");
+            const spread = ev.spread ? `${ev.spread[0]}${u} → ${ev.spread[1]}${u}` : "";
+            const todayChip = ev.is_today ? `<span class="chip chip-today">AUJOURD'HUI</span>` : `<span class="chip">${escapeHTML(ev.date || "")}</span>`;
+            const realizedTxt = (ev.realized != null)
+                ? `réalisé <strong class="mono">${ev.realized}${u}</strong>`
+                : `<span class="text-muted">pas encore de relevé du jour</span>`;
+
+            let rows = "";
+            (ev.buckets || []).forEach(b => {
+                if (b.p === null || b.p === undefined) return;
+                const pct = Math.round(b.p * 100);
+                const pbar = `<div class="pbar"><div class="pbar-fill" style="width:${pct}%"></div><span class="pbar-label">${pct}%</span></div>`;
+                const edgeVal = (b.edge !== null && b.edge !== undefined) ? b.edge : null;
+                const edgeCls = edgeVal === null ? "text-muted" : (edgeVal > 0.05 ? "pnl-positive" : (edgeVal > 0 ? "" : "pnl-negative"));
+                const edgeTxt = edgeVal === null ? "—" : (edgeVal >= 0 ? "+" : "") + Math.round(edgeVal * 100);
+                const held = b.held_shares > 0;
+                const betCell = held
+                    ? `<span class="badge-bet">PARIÉ ${b.held_shares.toFixed(1)} @ ${(b.held_avg || 0).toFixed(2)}</span>`
+                    : "—";
+                rows += `<tr class="${held ? "bet-row" : ""}">
+                    <td>${escapeHTML(b.label)}</td>
+                    <td>${pbar}</td>
+                    <td class="num mono">${Math.round(b.price * 100)}¢</td>
+                    <td class="num mono ${edgeCls}"><strong>${edgeTxt}</strong></td>
+                    <td>${betCell}</td>
+                </tr>`;
+            });
+
+            html += `<div class="panel weather-card">
+                <div class="panel-head">
+                    <h2>${escapeHTML(cap(ev.city))} ${todayChip}</h2>
+                    <span class="mono text-muted weather-meta">prévision méd <strong>${ev.median}${u}</strong> (${spread}) · ${realizedTxt} · ${ev.n} scénarios</span>
+                </div>
+                <div class="table-wrapper"><table class="data-table">
+                    <thead><tr><th>Tranche</th><th>Proba modèle</th><th class="num">Prix marché</th><th class="num">Edge ×100</th><th>Pari</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>
+            </div>`;
         });
+
+        if (updatedAt) {
+            html += `<div class="text-center text-muted mono weather-updated">maj ${new Date(updatedAt * 1000).toLocaleTimeString()}</div>`;
+        }
+        weatherContainer.innerHTML = html;
     }
 
-    // Modal Control
-    async function openTradeModal(marketId, tokenId, outcomeName, outcomePrice, marketTitle) {
-        currentModalData = { marketId, tokenId, outcomeName, outcomePrice, marketTitle };
-        
-        modalMarketTitle.innerText = marketTitle;
-        modalOutcomeName.innerText = outcomeName;
-        modalOutcomePrice.innerText = parseFloat(outcomePrice).toFixed(2);
-        
-        // Fetch current cash balance to show limit
-        try {
-            const res = await fetch("/api/portfolio");
-            const data = await res.json();
-            modalUserBalance.innerText = data.balance.toFixed(2);
-        } catch (e) {}
-
-        tradeModal.style.display = "block";
-    }
-
-    function closeModal() {
-        tradeModal.style.display = "none";
-        currentModalData = null;
-    }
-
-    // Fetch bot live console logs
+    // ===================== CONSOLE =====================
     async function fetchLogs() {
         try {
             const res = await fetch("/api/logs");
             if (!res.ok) return;
             const data = await res.json();
-            
-            // Build log DOM efficiently
+
             let logsHtml = "";
             data.logs.forEach(log => {
                 let lvlClass = "system";
@@ -627,26 +407,20 @@ document.addEventListener("DOMContentLoaded", () => {
                 else if (log.level === "ERROR") lvlClass = "error";
                 else if (log.level === "WARNING") lvlClass = "warning";
                 else if (log.level === "INFO") lvlClass = "info";
-                
                 logsHtml += `<div class="console-line ${lvlClass}">[${log.time}] [${log.level}] ${escapeHTML(log.message)}</div>`;
             });
-            
+
             if (logsHtml !== recentLogsText) {
                 const shouldScroll = consoleOutput.scrollHeight - consoleOutput.scrollTop - consoleOutput.clientHeight < 40;
                 consoleOutput.innerHTML = logsHtml;
                 recentLogsText = logsHtml;
-                
-                // Auto scroll to bottom if user is already near bottom
-                if (shouldScroll) {
-                    consoleOutput.scrollTop = consoleOutput.scrollHeight;
-                }
+                if (shouldScroll) consoleOutput.scrollTop = consoleOutput.scrollHeight;
             }
         } catch (e) {
             console.error("Error fetching logs:", e);
         }
     }
 
-    // Add immediate line to console (for UI interactivity response)
     function addConsoleLine(text, level = "info") {
         const time = new Date().toLocaleTimeString();
         const line = document.createElement("div");
@@ -656,17 +430,17 @@ document.addEventListener("DOMContentLoaded", () => {
         consoleOutput.scrollTop = consoleOutput.scrollHeight;
     }
 
-    // Fetch trade execution history
+    // ===================== HISTORIQUE =====================
     async function fetchTrades() {
         try {
             const res = await fetch("/api/trades");
             if (!res.ok) return;
             const data = await res.json();
-            
+
             const tradesStr = JSON.stringify(data.trades);
             if (tradesStr === recentTradesStr) return;
             recentTradesStr = tradesStr;
-            
+
             if (!data.trades || data.trades.length === 0) {
                 historyContainer.innerHTML = `<div class="text-center text-muted padded">Aucun trade historique enregistré.</div>`;
                 return;
@@ -674,10 +448,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             let html = "";
             data.trades.forEach(t => {
-                const date = new Date(t.timestamp + "Z").toLocaleTimeString();
+                const date = new Date(t.timestamp + "Z").toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
                 const cost = t.shares * t.price;
-                const actionClass = t.action.toLowerCase();
-                
+                const actionClass = t.action === "RESOLVE" ? "resolve" : t.action.toLowerCase();
+
                 let pnlHtml = "";
                 if (t.pnl !== null) {
                     const sign = t.pnl >= 0 ? "+" : "";
@@ -688,13 +462,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 html += `
                     <div class="history-item">
                         <div class="history-header">
-                            <span class="history-action ${actionClass}">${t.action} ${t.outcome}</span>
+                            <span class="history-action ${actionClass}">${t.action} ${escapeHTML(t.outcome)}</span>
                             <span class="history-time">${date}</span>
                         </div>
                         <div class="history-body">${escapeHTML(t.question)}</div>
                         <div class="history-footer">
                             <span>${t.shares.toFixed(1)} parts @ ${t.price.toFixed(2)} $</span>
-                            <span>${pnlHtml || `Valeur: ${cost.toFixed(2)} $`}</span>
+                            <span>${pnlHtml || `Coût: ${cost.toFixed(2)} $`}</span>
                         </div>
                     </div>
                 `;
@@ -705,140 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Fetch and render Crypto Direction live signals
-    let recentCryptoStr = "";
-    async function fetchCryptoSignals() {
-        try {
-            const res = await fetch("/api/crypto/signals");
-            if (!res.ok) return;
-            const data = await res.json();
-            renderCryptoSignals(data.signals || [], data.updated_at || 0);
-            renderWeather(data.weather || []);
-            renderLearning(data.learning);
-        } catch (e) {
-            // silent: les panneaux ne servent qu'en modes crypto/météo
-        }
-    }
-
-    // Learning/calibration status badge (crypto + météo)
-    function renderLearning(l) {
-        ["crypto-learn", "weather-learn"].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            if (!l) { el.innerText = ""; return; }
-            const winrate = l.samples ? Math.round(100 * l.wins / l.samples) + "% win" : "—";
-            const mode = l.calibrated ? "calibration ACTIVE" : "calibration en attente de données";
-            el.classList.toggle("on", !!l.calibrated);
-            el.innerText = `Apprentissage : ${l.samples} paris réglés · ${winrate} · ${mode}`;
-        });
-    }
-
-    // Render weather edge events (une carte par ville/marché)
-    function renderWeather(events) {
-        const c = document.getElementById("weather-container");
-        if (!c) return;
-        if (!events || !events.length) {
-            c.innerHTML = `<div class="text-center text-muted padded">Aucun marché température exploitable pour l'instant. Active « Météo » et démarre le bot.</div>`;
-            return;
-        }
-        let html = "";
-        events.forEach(ev => {
-            const u = ev.unit || "";
-            const dateTxt = (ev.title && ev.title.indexOf(" on ") >= 0) ? ev.title.split(" on ").pop().replace("?", "").trim() : "";
-            let rows = "";
-            (ev.buckets || []).forEach(b => {
-                const edgeCls = b.edge > 0.05 ? "pnl-positive" : (b.edge < 0 ? "pnl-negative" : "text-muted");
-                rows += `<tr>
-                    <td>${escapeHTML(b.label)}</td>
-                    <td class="num"><strong>${Math.round(b.p * 100)}%</strong></td>
-                    <td class="num">${Math.round(b.price * 100)}¢</td>
-                    <td class="num ${edgeCls}">${b.edge >= 0 ? "+" : ""}${(b.edge * 100).toFixed(0)}</td>
-                </tr>`;
-            });
-            html += `<div class="panel weather-card">
-                <div class="panel-head">
-                    <h2>${escapeHTML(ev.city || ev.title)}${dateTxt ? " · " + escapeHTML(dateTxt) : ""}</h2>
-                    <span class="mono text-muted weather-meta">méd ${ev.median}${u} · réalisé ${ev.realized != null ? ev.realized + u : "—"} · n=${ev.n}</span>
-                </div>
-                <div class="table-wrapper"><table class="data-table">
-                    <thead><tr><th>Tranche</th><th class="num">P modèle</th><th class="num">Prix</th><th class="num">Edge ×100</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table></div>
-            </div>`;
-        });
-        c.innerHTML = html;
-    }
-
-    function renderCryptoSignals(signals, updatedAt) {
-        const body = document.getElementById("crypto-signals-body");
-        const upd = document.getElementById("crypto-updated");
-        if (!body) return;
-
-        // Avoid redundant re-renders (countdown still updates because t_left changes)
-        const sigStr = JSON.stringify(signals);
-        if (sigStr === recentCryptoStr) return;
-        recentCryptoStr = sigStr;
-
-        if (!signals.length) {
-            body.innerHTML = `<tr><td colspan="11" class="text-center text-muted">Aucun marché Up/Down dans la fenêtre d'analyse. Activez la stratégie « Crypto Direction » et démarrez le bot.</td></tr>`;
-            if (upd) upd.innerText = "";
-            return;
-        }
-
-        let html = "";
-        signals.forEach(s => {
-            const deltaClass = s.delta_pct >= 0 ? "pnl-positive" : "pnl-negative";
-            const deltaSign = s.delta_pct >= 0 ? "+" : "";
-
-            // Best available edge across both sides
-            let edge = null;
-            if (s.edge_up !== null && s.edge_up !== undefined) edge = s.edge_up;
-            if (s.edge_down !== null && s.edge_down !== undefined) edge = (edge === null) ? s.edge_down : Math.max(edge, s.edge_down);
-            const edgeShown = (edge === null) ? "—" : (edge >= 0 ? "+" : "") + edge.toFixed(3);
-            const edgeClass = (edge === null) ? "text-muted" : (edge > 0.06 ? "pnl-positive" : (edge > 0 ? "" : "pnl-negative"));
-
-            // Time-left urgency colour
-            const tClass = s.t_left <= 30 ? "pnl-negative" : (s.t_left <= 120 ? "" : "text-muted");
-
-            // P(up) as a mini bar
-            const pct = Math.round(s.p_up * 100);
-            const pbar = `<div class="pbar"><div class="pbar-fill" style="width:${pct}%"></div><span class="pbar-label">${pct}%</span></div>`;
-
-            // Order-flow (Binance aggressor) — the user's "watch buyers vs sellers" idea
-            let flowHtml = `<span class="text-muted">—</span>`;
-            if (s.flow !== null && s.flow !== undefined) {
-                const f = s.flow;
-                const fcls = f > 0.1 ? "pnl-positive" : (f < -0.1 ? "pnl-negative" : "text-muted");
-                const farrow = f > 0.1 ? "▲" : (f < -0.1 ? "▼" : "→");
-                flowHtml = `<span class="${fcls}">${farrow} ${f >= 0 ? "+" : ""}${f.toFixed(2)}</span>`;
-            }
-
-            let actionHtml = "—";
-            if (s.action) actionHtml = `<span class="history-action buy">${escapeHTML(s.action)}</span>`;
-            else if (s.held) actionHtml = `<span class="text-muted">Détenu</span>`;
-
-            html += `
-                <tr>
-                    <td>${escapeHTML(s.asset)}</td>
-                    <td>${escapeHTML(s.window)}</td>
-                    <td class="num">${fmtSpot(s.spot)}</td>
-                    <td class="num">${fmtSpot(s.open_ref)}</td>
-                    <td class="num ${deltaClass}">${deltaSign}${s.delta_pct.toFixed(3)}%</td>
-                    <td class="num ${tClass}">${fmtCountdown(s.t_left)}</td>
-                    <td>${pbar}</td>
-                    <td class="num"><span class="yes-color">${Math.round(s.up_price * 100)}¢</span> / <span class="no-color">${Math.round(s.down_price * 100)}¢</span></td>
-                    <td class="num">${flowHtml}</td>
-                    <td class="num ${edgeClass}"><strong>${edgeShown}</strong></td>
-                    <td>${actionHtml}</td>
-                </tr>
-            `;
-        });
-        body.innerHTML = html;
-        if (upd && updatedAt) upd.innerText = "maj " + new Date(updatedAt * 1000).toLocaleTimeString();
-    }
-
-    // Build Lightweight Charts series from equity history. Keyed by unix-second to
-    // guarantee unique, strictly-ascending timestamps (a Lightweight Charts requirement).
+    // ===================== COURBE D'EQUITY (Lightweight Charts) =====================
     function buildSeriesData(history) {
         const totalMap = new Map();
         const cashMap = new Map();
@@ -883,14 +524,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const cash = chart.addLineSeries({
             color: "#7c8aa3",
             lineWidth: 1,
-            lineStyle: 2, // dashed
+            lineStyle: 2,
             priceLineVisible: false,
             lastValueVisible: false
         });
         return { area, cash };
     }
 
-    // Fetch and render equity curve (Lightweight Charts)
     async function fetchEquityHistory() {
         try {
             const res = await fetch("/api/equity-history");
@@ -912,7 +552,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // Initialize the main Lightweight Charts instance
     function initChart() {
         const el = document.getElementById("equityChart");
         if (!el || !window.LightweightCharts) return;
@@ -925,7 +564,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }).observe(el);
     }
 
-    // Initialize the large (modal) Lightweight Charts instance
     function initLargeChart() {
         const el = document.getElementById("largeEquityChart");
         if (!el || !window.LightweightCharts) return;
@@ -938,7 +576,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }).observe(el);
     }
 
-    // Render large chart from cached history
     function renderLargeChartData() {
         if (!largeAreaSeries || !cachedEquityHistory) return;
         const { total, cash } = buildSeriesData(cachedEquityHistory);
@@ -947,43 +584,17 @@ document.addEventListener("DOMContentLoaded", () => {
         largeChart.timeScale().fitContent();
     }
 
-    // --- UTILS ---
-
-    // Adaptive price formatting (BTC 63 297 vs DOGE 0.0912)
-    function fmtSpot(p) {
-        if (p == null) return "—";
-        if (p >= 1000) return p.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
-        if (p >= 1) return p.toFixed(2);
-        return p.toFixed(4);
-    }
-
-    // Countdown: m:ss for long windows, Ns when close
-    function fmtCountdown(secs) {
-        if (secs == null) return "—";
-        if (secs >= 90) {
-            const m = Math.floor(secs / 60);
-            const s = secs % 60;
-            return m + ":" + String(s).padStart(2, "0");
-        }
-        return secs + "s";
-    }
-
+    // ===================== UTILS =====================
     function formatUSD(num) {
         return num.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
     }
 
-    function formatNumber(num) {
-        if (num >= 1000000) {
-            return (num / 1000000).toFixed(1) + "M";
-        }
-        if (num >= 1000) {
-            return (num / 1000).toFixed(1) + "k";
-        }
-        return num.toFixed(0);
+    function cap(s) {
+        return (s || "").replace(/\b\w/g, c => c.toUpperCase());
     }
 
     function escapeHTML(str) {
-        return str.replace(/[&<>'"]/g, 
+        return String(str).replace(/[&<>'"]/g,
             tag => ({
                 '&': '&amp;',
                 '<': '&lt;',
@@ -999,14 +610,8 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const d = new Date(isoStr);
             if (isNaN(d.getTime())) return "—";
-            return d.toLocaleDateString("fr-FR", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric"
-            }) + " " + d.toLocaleTimeString("fr-FR", {
-                hour: "2-digit",
-                minute: "2-digit"
-            });
+            return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }) + " " +
+                   d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
         } catch (e) {
             return "—";
         }

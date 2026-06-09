@@ -204,7 +204,6 @@ body {
 
 /* ===================== FORMS ===================== */
 .form-group { margin-bottom: 13px; }
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 label, .micro-label {
     display: block; font-size: 10.5px; font-weight: 600;
     letter-spacing: 0.06em; text-transform: uppercase;
@@ -261,15 +260,6 @@ select.form-control { cursor: pointer; }
 .btn-secondary:hover:not(:disabled) { background: #182338; }
 .btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border); }
 .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--cyan-dim); }
-
-/* Badge "mode déjà actif" — le bouton devient un indicateur d'état (pas grisé) */
-.btn.btn-active-on, .btn.btn-active-on:disabled {
-    background: rgba(0, 230, 168, 0.14);
-    color: var(--green);
-    border-color: rgba(0, 230, 168, 0.42);
-    opacity: 1;
-    cursor: default;
-}
 
 /* ===================== TABLES ===================== */
 .table-wrapper { width: 100%; overflow-x: auto; }
@@ -333,7 +323,7 @@ select.form-control { cursor: pointer; }
 .console-line.warning { color: var(--amber); }
 .console-line.error   { color: var(--red); }
 
-/* ===================== CRYPTO DIRECTION ===================== */
+/* ===================== MÉTÉO ===================== */
 .crypto-banner {
     display: flex; align-items: center; justify-content: space-between; gap: 20px;
     background: linear-gradient(120deg, rgba(245,165,36,0.08), rgba(56,189,248,0.05));
@@ -346,7 +336,6 @@ select.form-control { cursor: pointer; }
 .crypto-banner-text h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
 .crypto-banner-text p { font-size: 12.5px; color: var(--text-muted); max-width: 760px; }
 .crypto-banner-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
-.crypto-updated { font-size: 10.5px; color: var(--text-dim); }
 .crypto-learn { font-size: 10.5px; color: var(--text-muted); }
 .crypto-learn.on { color: var(--green); }
 
@@ -354,11 +343,31 @@ select.form-control { cursor: pointer; }
 .weather-list { display: flex; flex-direction: column; gap: 14px; }
 .weather-card { margin-bottom: 0; border-left: 3px solid var(--amber); }
 .weather-meta { font-size: 11px; }
+.weather-bets { margin-bottom: 0; border-left: 3px solid var(--green); }
+.weather-updated { font-size: 10.5px; padding: 4px 0 10px; }
 
-.crypto-table tbody td { font-family: var(--font-mono); }
-.crypto-table tbody td:first-child { font-weight: 700; color: #fff; }
+.chip {
+    display: inline-block; vertical-align: 1px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+    padding: 2px 8px; margin-left: 8px; border-radius: 3px;
+    background: var(--bg-elev); color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+.chip-today { background: rgba(245,165,36,0.14); color: var(--amber); border-color: rgba(245,165,36,0.4); }
 
-/* P(up) bar */
+.badge-bet {
+    display: inline-block;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 8px; border-radius: 3px;
+    background: rgba(0,230,168,0.13); color: var(--green);
+    border: 1px solid rgba(0,230,168,0.35);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+.bet-row { background: rgba(0,230,168,0.05); }
+.bet-row:hover { background: rgba(0,230,168,0.08) !important; }
+
+/* Barre de probabilité */
 .pbar {
     position: relative;
     width: 90px; height: 17px;
@@ -377,41 +386,6 @@ select.form-control { cursor: pointer; }
     display: block; text-align: center;
     font-size: 10.5px; font-weight: 600; line-height: 17px; color: #fff;
 }
-
-.yes-color { color: var(--green); }
-.no-color  { color: var(--red); }
-
-/* ===================== MARKETS ===================== */
-.search-bar-wrapper { margin-bottom: 14px; }
-.markets-list { display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow-y: auto; }
-.loading-spinner { text-align: center; color: var(--text-muted); padding: 28px; font-size: 13px; }
-.market-item {
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    background: var(--bg-inset);
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius);
-    padding: 12px 14px;
-    transition: border-color 0.15s, background 0.15s;
-}
-.market-item:hover { border-color: var(--border); background: var(--bg-elev); }
-.market-info { min-width: 0; }
-.market-question { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
-.market-meta { display: flex; gap: 16px; font-size: 11px; color: var(--text-muted); }
-.market-meta strong { color: var(--text); font-family: var(--font-mono); }
-.market-pricing { display: flex; gap: 8px; flex-shrink: 0; }
-.price-box {
-    display: flex; flex-direction: column; align-items: center; gap: 2px;
-    min-width: 64px; padding: 7px 10px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: border-color 0.15s, transform 0.05s, box-shadow 0.15s;
-}
-.price-box:hover { border-color: var(--cyan-dim); box-shadow: 0 0 0 3px rgba(56,189,248,0.1); }
-.price-box:active { transform: translateY(1px); }
-.price-box-outcome { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-.price-box-value { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
 
 /* ===================== HISTORY ===================== */
 .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 74vh; overflow-y: auto; }
@@ -452,9 +426,6 @@ select.form-control { cursor: pointer; }
     font-size: 24px; line-height: 1; color: var(--text-dim); cursor: pointer;
 }
 .close-btn:hover { color: var(--text); }
-.modal-outcome-info { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
-.modal-outcome-info strong { color: var(--text); }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 
 /* ===================== SCROLLBARS ===================== */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
@@ -506,18 +477,14 @@ select.form-control { cursor: pointer; }
 
     /* Tableaux larges : défilement horizontal, colonnes lisibles (pas écrasées) */
     .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    #table-crypto { min-width: 700px; }
     #table-positions { min-width: 640px; }
+    .weather-card table, .weather-bets table { min-width: 540px; }
 
-    /* Bannière crypto : empilée */
+    /* Bannière météo : empilée */
     .crypto-banner { flex-direction: column; align-items: flex-start; gap: 12px; padding: 14px; }
     .crypto-banner-text h2 { font-size: 15px; }
     .crypto-banner-actions { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
-
-    /* Marchés : carte empilée (infos au-dessus, prix en dessous) */
-    .market-item { flex-direction: column; align-items: stretch; gap: 10px; }
-    .market-pricing { flex-wrap: wrap; }
-    .price-box { flex: 1 1 auto; }
+    .panel-head { flex-wrap: wrap; gap: 6px; }
 
     /* En-tête du graphe : on masque la légende texte pour gagner de la place */
     .head-right { gap: 10px; }
