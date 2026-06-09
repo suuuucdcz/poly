@@ -350,6 +350,11 @@ select.form-control { cursor: pointer; }
 .crypto-learn { font-size: 10.5px; color: var(--text-muted); }
 .crypto-learn.on { color: var(--green); }
 
+/* --- Weather Edge cards --- */
+.weather-list { display: flex; flex-direction: column; gap: 14px; }
+.weather-card { margin-bottom: 0; border-left: 3px solid var(--amber); }
+.weather-meta { font-size: 11px; }
+
 .crypto-table tbody td { font-family: var(--font-mono); }
 .crypto-table tbody td:first-child { font-weight: 700; color: #fff; }
 

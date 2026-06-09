@@ -122,7 +122,7 @@ class CryptoDirectionStrategy(Strategy):
         if cfg.CRYPTO_CALIBRATION_ENABLED and (now - self._last_refit > cfg.CRYPTO_CALIBRATION_REFIT_SEC):
             self._last_refit = now
             try:
-                self.calibrator.fit(db.get_bet_samples(3000))
+                self.calibrator.fit(db.get_bet_samples(3000, kind="crypto"))
             except Exception as e:
                 ctx.log(f"CRYPTO: refit calibration impossible: {e}", "WARNING")
 
@@ -233,7 +233,8 @@ class CryptoDirectionStrategy(Strategy):
                             ctx.accumulate_position(token, mk["market_id"], mk["question"], side, shares, ask, mk["end_date"])
                             db.add_trade(mk["market_id"], mk["question"], token, "BUY", side, shares, ask)
                             db.log_bet(token, asset, mk["window"], side, is_up, ask, p_raw, edge,
-                                       delta * 100.0, int(t_left), sigma, flow, shares, cost)
+                                       delta * 100.0, int(t_left), sigma, flow, shares, cost,
+                                       kind="crypto")
                             self._open_bets[token] = {
                                 "asset": asset, "window": mk["window"],
                                 "open_ts": mk["open_ts"], "end_ts": mk["end_ts"],
@@ -257,7 +258,7 @@ class CryptoDirectionStrategy(Strategy):
         if ctx.crypto_state is not None:
             ctx.crypto_state["signals"] = signals[: cfg.CRYPTO_SIGNALS_MAX]
             ctx.crypto_state["updated_at"] = now
-            stats = db.get_bet_stats()
+            stats = db.get_bet_stats(kind="crypto")
             ctx.crypto_state["learning"] = {
                 "calibrated": self.calibrator.active,
                 "samples": stats["settled"],

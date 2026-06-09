@@ -68,6 +68,7 @@
         <!-- ===================== TAB NAV ===================== -->
         <nav class="tabs" id="tab-nav">
             <button class="tab-btn active" data-tab="overview">Vue d'ensemble</button>
+            <button class="tab-btn" data-tab="weather">🌡️ Météo</button>
             <button class="tab-btn" data-tab="crypto">⚡ Crypto Direction</button>
             <button class="tab-btn" data-tab="markets">Marchés &amp; Trade</button>
             <button class="tab-btn" data-tab="history">Historique</button>
@@ -106,6 +107,7 @@
                                 <option value="momentum">Momentum EMA Crossover</option>
                                 <option value="value">Value / Mean Reversion</option>
                                 <option value="crypto_direction">⚡ Crypto Direction (Up/Down 5m/15m)</option>
+                                <option value="weather">🌡️ Weather Edge (température)</option>
                             </select>
                         </div>
                         <div class="form-row" id="config-form-row">
@@ -205,6 +207,23 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </section>
+
+        <!-- ===================== TAB: MÉTÉO ===================== -->
+        <section class="tab-panel" id="tab-weather">
+            <div class="crypto-banner">
+                <div class="crypto-banner-text">
+                    <h2>🌡️ Weather Edge — proba modèle vs marché</h2>
+                    <p>Distribution d'ensemble (GFS + ICON + ECMWF) du <strong>max du jour</strong> → probabilité par tranche, comparée au prix Polymarket. On achète les <strong>tranches sous-évaluées</strong> (jamais les favoris chers). <strong>Paper trading.</strong></p>
+                </div>
+                <div class="crypto-banner-actions">
+                    <button id="btn-activate-weather" class="btn btn-primary btn-sm">Activer ce mode</button>
+                    <span class="crypto-learn mono" id="weather-learn">Apprentissage : 0 pari réglé</span>
+                </div>
+            </div>
+            <div class="weather-list" id="weather-container">
+                <div class="text-center text-muted padded">En attente du mode « Météo »…</div>
             </div>
         </section>
 

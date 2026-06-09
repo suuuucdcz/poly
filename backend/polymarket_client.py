@@ -179,3 +179,55 @@ class PolymarketClient:
 
         results = await asyncio.gather(*[fetch_one(s) for s in specs])
         return [r for r in results if r]
+
+    # ============================================================
+    # MARCHÉS « HIGHEST TEMPERATURE » (météo)
+    # ============================================================
+    async def find_temperature_events(self):
+        """Découvre les events « Highest temperature in {Ville} on {Date} » et
+        parse leurs buckets (tranches de degré + prix Yes)."""
+        url = (
+            f"{self.gamma}/events?active=true&closed=false&limit=300"
+            f"&order=volume24hr&ascending=false"
+        )
+        try:
+            events = await self.fetch_api_json(url)
+        except Exception as e:
+            self._log(f"Error fetching temperature events: {e}", "WARNING")
+            return []
+        out = []
+        for e in events:
+            title = e.get("title") or ""
+            if not title.lower().startswith("highest temperature"):
+                continue
+            markets = e.get("markets") or []
+            if len(markets) < 3:
+                continue
+            buckets = []
+            for m in markets:
+                label = m.get("groupItemTitle") or m.get("question")
+                try:
+                    tokens = json.loads(m.get("clobTokenIds", "[]"))
+                    prices = json.loads(m.get("outcomePrices", "[]"))
+                    outcomes = json.loads(m.get("outcomes", "[]"))
+                except Exception:
+                    continue
+                if len(tokens) < 2 or len(prices) < 2:
+                    continue
+                buckets.append({
+                    "label": label,
+                    "market_id": m.get("id"),
+                    "yes_token": tokens[0],
+                    "yes_outcome": outcomes[0] if outcomes else "Yes",
+                    "yes_price": float(prices[0]),
+                    "end_date": m.get("endDate") or m.get("endDateIso"),
+                    "closed": bool(m.get("closed", False)) or not m.get("active", True),
+                })
+            if len(buckets) >= 3:
+                out.append({
+                    "title": title,
+                    "slug": e.get("slug"),
+                    "end_date": e.get("endDate"),
+                    "buckets": buckets,
+                })
+        return out

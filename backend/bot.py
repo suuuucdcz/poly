@@ -21,6 +21,7 @@ from backend.strategies import (
     MomentumStrategy,
     TradeContext,
     ValueStrategy,
+    WeatherEdgeStrategy,
 )
 
 
@@ -48,6 +49,7 @@ class TradingBot:
         self.momentum = MomentumStrategy()
         self.value = ValueStrategy()
         self.crypto = CryptoDirectionStrategy()
+        self.weather = WeatherEdgeStrategy()
 
         # Snapshot des signaux crypto exposé au frontend
         self.crypto_state = {"signals": [], "updated_at": 0}
@@ -176,6 +178,7 @@ class TradingBot:
                         balance += settle_value
                         db.update_balance(balance)
                         db.add_trade(mid, question, pos["token_id"], "RESOLVE", outcome_name, pos["shares"], final_price, pnl)
+                        db.settle_bet(pos["token_id"], 1 if final_price >= 0.5 else 0, pnl)  # nourrit la calibration (météo & co)
                         db.save_position(pos["token_id"], mid, question, outcome_name, 0.0, 0.0, 0.0)
                         self.log(f"RESOLVED: '{question}' -> '{outcome_name}' at {final_price:.2f}. Payout: {settle_value:.2f}. PnL: {pnl:+.2f}", "SUCCESS")
                         # Nettoyage du pic de prix associé
@@ -226,6 +229,10 @@ class TradingBot:
 
         # La stratégie crypto fonctionne sur ses propres marchés (slugs déterministes),
         # indépendamment de la liste des marchés liquides génériques.
+        if self.strategy == "weather":
+            await self.weather.run(ctx, [], balance, portfolio_value)
+            return
+
         if self.strategy == "crypto_direction":
             await self.crypto.run(ctx, [], balance, portfolio_value)
             return

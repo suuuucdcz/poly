@@ -24,10 +24,10 @@ HTTP_TIMEOUT = 8
 # ============================================================
 # DÉFAUTS DU BOT (modifiables à chaud sur l'instance)
 # ============================================================
-DEFAULT_STRATEGY = "crypto_direction"
-DEFAULT_TICK_INTERVAL = 2
+DEFAULT_STRATEGY = "weather"
+DEFAULT_TICK_INTERVAL = 60
 DEFAULT_MAX_MARKETS_TO_SCAN = 15
-VALID_STRATEGIES = ["arbitrage", "momentum", "value", "hybrid", "crypto_direction"]
+VALID_STRATEGIES = ["arbitrage", "momentum", "value", "hybrid", "crypto_direction", "weather"]
 
 # ============================================================
 # RÉCUPÉRATION DES MARCHÉS GÉNÉRIQUES
@@ -148,3 +148,22 @@ CRYPTO_CALIBRATION_MIN_LOSSES = 10    # besoin de défaites pour calibrer (sinon
 CRYPTO_CALIBRATION_BINS = 10
 CRYPTO_CALIBRATION_PRIOR = 25.0       # force du prior (shrink vers la proba modèle)
 CRYPTO_CALIBRATION_REFIT_SEC = 90     # refit périodique
+
+# ============================================================
+# STRATÉGIE MÉTÉO (marchés « Highest temperature »)
+# ============================================================
+# Ensemble multi-modèles Open-Meteo (≈ 120 scénarios cumulés)
+WEATHER_MODELS = "gfs025,icon_seamless,ecmwf_ifs025"
+WEATHER_TICK_INTERVAL = 60          # cadence lente (marchés journaliers)
+WEATHER_ENS_CACHE_TTL = 600         # cache ensemble (s) — runs toutes les 6h
+WEATHER_REALIZED_CACHE_TTL = 300    # cache du max réalisé (s)
+
+WEATHER_EDGE_THRESHOLD = 0.05       # edge mini (P calibrée − prix − frais)
+WEATHER_MIN_BUY_PRICE = 0.02        # garde-fous de prix
+WEATHER_MAX_BUY_PRICE = 0.60        # NE PAS acheter de favori cher (leçon crypto)
+
+WEATHER_KELLY_FRACTION = 0.30       # sizing par edge (prudent)
+WEATHER_STAKE_MIN_USDC = 2.0
+WEATHER_STAKE_MAX_USDC = 25.0
+WEATHER_MAX_BUCKETS_PER_MARKET = 3  # diversifier, pas tout sur un seul marché
+WEATHER_SIGNALS_MAX = 60            # snapshots exposés au frontend

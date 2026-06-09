@@ -87,6 +87,7 @@ def init_db(default_budget=1000.0):
         CREATE TABLE IF NOT EXISTS bet_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
+            kind TEXT,
             token_id TEXT NOT NULL,
             asset TEXT,
             window TEXT,
@@ -106,6 +107,12 @@ def init_db(default_budget=1000.0):
             pnl REAL
         )
         """)
+        # Auto-migration : colonne 'kind' (crypto / weather) pour ne pas mélanger
+        # les calibrations entre stratégies.
+        try:
+            cursor.execute("ALTER TABLE bet_log ADD COLUMN kind TEXT")
+        except sqlite3.OperationalError:
+            pass
         
         # Check if portfolio already exists
         cursor.execute("SELECT COUNT(*) FROM portfolio")
@@ -265,17 +272,17 @@ def get_equity_history(limit=200):
 # BET LOG (apprentissage / calibration)
 # ============================================================
 def log_bet(token_id, asset, window, side, is_up, entry_price, model_p, edge,
-            delta_pct, t_left, sigma, flow, shares, cost):
+            delta_pct, t_left, sigma, flow, shares, cost, kind=None):
     """Enregistre un pari à l'entrée (résultat rempli plus tard par settle_bet)."""
     with get_db() as conn:
         cursor = conn.cursor()
         now = datetime.utcnow().isoformat()
         cursor.execute("""
-        INSERT INTO bet_log (timestamp, token_id, asset, window, side, is_up,
+        INSERT INTO bet_log (timestamp, kind, token_id, asset, window, side, is_up,
             entry_price, model_p, edge, delta_pct, t_left, sigma, flow, shares, cost,
             settled, won, pnl)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL)
-        """, (now, token_id, asset, window, side, 1 if is_up else 0, entry_price,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL)
+        """, (now, kind, token_id, asset, window, side, 1 if is_up else 0, entry_price,
               model_p, edge, delta_pct, t_left, sigma, flow, shares, cost))
         conn.commit()
 
@@ -298,34 +305,40 @@ def settle_bet(token_id, won, pnl):
         conn.commit()
 
 
-def get_bet_samples(limit=3000):
-    """Échantillons (proba modèle brute, gagné) pour la calibration."""
+def get_bet_samples(limit=3000, kind=None):
+    """Échantillons (proba modèle brute, gagné) pour la calibration, filtrés par
+    `kind` (crypto/weather) pour ne pas mélanger les stratégies."""
     try:
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT model_p, won FROM bet_log WHERE settled = 1 AND model_p IS NOT NULL "
-                "ORDER BY id DESC LIMIT ?",
-                (limit,),
-            )
+            q = "SELECT model_p, won FROM bet_log WHERE settled = 1 AND model_p IS NOT NULL"
+            params = []
+            if kind:
+                q += " AND kind = ?"
+                params.append(kind)
+            q += " ORDER BY id DESC LIMIT ?"
+            params.append(limit)
+            cursor.execute(q, params)
             return [(row["model_p"], row["won"]) for row in cursor.fetchall()]
     except sqlite3.OperationalError:
         return []
 
 
-def get_bet_stats():
-    """Résumé du journal des paris."""
+def get_bet_stats(kind=None):
+    """Résumé du journal des paris (optionnellement filtré par `kind`)."""
     default = {"total": 0, "settled": 0, "wins": 0, "pnl": 0.0}
     try:
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            where = "WHERE kind = ?" if kind else ""
+            params = (kind,) if kind else ()
+            cursor.execute(f"""
                 SELECT COUNT(*) AS total,
                        SUM(CASE WHEN settled = 1 THEN 1 ELSE 0 END) AS settled,
                        SUM(CASE WHEN settled = 1 AND won = 1 THEN 1 ELSE 0 END) AS wins,
                        SUM(CASE WHEN settled = 1 THEN COALESCE(pnl, 0) ELSE 0 END) AS pnl
-                FROM bet_log
-            """)
+                FROM bet_log {where}
+            """, params)
             row = cursor.fetchone()
             return {
                 "total": row["total"] or 0,

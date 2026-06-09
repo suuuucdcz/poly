@@ -9,6 +9,7 @@ from backend.strategies.base import Strategy, TradeContext
 from backend.strategies.crypto_direction import CryptoDirectionStrategy
 from backend.strategies.momentum import MomentumStrategy
 from backend.strategies.value import ValueStrategy
+from backend.strategies.weather_edge import WeatherEdgeStrategy
 
 __all__ = [
     "Strategy",
@@ -17,4 +18,5 @@ __all__ = [
     "MomentumStrategy",
     "ValueStrategy",
     "CryptoDirectionStrategy",
+    "WeatherEdgeStrategy",
 ]

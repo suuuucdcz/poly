@@ -280,6 +280,30 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // "Activer ce mode" sur l'onglet Météo
+    const btnActivateWeather = document.getElementById("btn-activate-weather");
+    if (btnActivateWeather) {
+        btnActivateWeather.addEventListener("click", async () => {
+            try {
+                const res = await fetch("/api/bot/configure", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ strategy: "weather", tick_interval: 60, max_markets_to_scan: 8 })
+                });
+                if (res.ok) {
+                    selectStrategy.value = "weather";
+                    inputInterval.value = 60;
+                    addConsoleLine("Mode Weather Edge activé.", "success");
+                } else {
+                    const err = await res.json();
+                    addConsoleLine("Échec activation météo: " + err.detail, "error");
+                }
+            } catch (e) {
+                addConsoleLine("Erreur activation météo: " + e.message, "error");
+            }
+        });
+    }
+
     // --- FUNCTIONS ---
 
     // Polling fast changing data (1.5 seconds)
@@ -424,25 +448,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // "Activer ce mode" reflects current strategy: badge when already active,
             // real action only when another strategy is selected.
-            const abtn = document.getElementById("btn-activate-crypto");
-            if (abtn) {
-                if (data.strategy === "crypto_direction") {
-                    abtn.disabled = true;
-                    abtn.textContent = "✓ Mode actif";
-                    abtn.classList.add("btn-active-on");
-                } else {
-                    abtn.disabled = false;
-                    abtn.textContent = "Activer ce mode";
-                    abtn.classList.remove("btn-active-on");
-                }
-            }
+            // Boutons "Activer ce mode" (crypto + météo) reflètent la stratégie active
+            [["btn-activate-crypto", "crypto_direction"], ["btn-activate-weather", "weather"]].forEach(([id, strat]) => {
+                const b = document.getElementById(id);
+                if (!b) return;
+                const on = data.strategy === strat;
+                b.disabled = on;
+                b.textContent = on ? "✓ Mode actif" : "Activer ce mode";
+                b.classList.toggle("btn-active-on", on);
+            });
 
-            // "Scan max" only affects Momentum/Value scanning — hide it in crypto mode
-            const cryptoMode = data.strategy === "crypto_direction";
+            // "Scan max" n'affecte que Momentum/Value — caché en mode crypto/météo
+            const hideScan = data.strategy === "crypto_direction" || data.strategy === "weather";
             const gScan = document.getElementById("group-scan");
             const fRow = document.getElementById("config-form-row");
-            if (gScan) gScan.style.display = cryptoMode ? "none" : "";
-            if (fRow) fRow.classList.toggle("single", cryptoMode);
+            if (gScan) gScan.style.display = hideScan ? "none" : "";
+            if (fRow) fRow.classList.toggle("single", hideScan);
         } catch (e) {
             console.error("Error fetching bot status:", e);
         }
@@ -692,21 +713,60 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!res.ok) return;
             const data = await res.json();
             renderCryptoSignals(data.signals || [], data.updated_at || 0);
+            renderWeather(data.weather || []);
             renderLearning(data.learning);
         } catch (e) {
-            // silent: the panel only matters in crypto_direction mode
+            // silent: les panneaux ne servent qu'en modes crypto/météo
         }
     }
 
-    // Learning/calibration status badge
+    // Learning/calibration status badge (crypto + météo)
     function renderLearning(l) {
-        const el = document.getElementById("crypto-learn");
-        if (!el) return;
-        if (!l) { el.innerText = ""; return; }
-        const winrate = l.samples ? Math.round(100 * l.wins / l.samples) + "% win" : "—";
-        const mode = l.calibrated ? "calibration ACTIVE" : "calibration en attente de données";
-        el.classList.toggle("on", !!l.calibrated);
-        el.innerText = `Apprentissage : ${l.samples} paris réglés · ${winrate} · ${mode}`;
+        ["crypto-learn", "weather-learn"].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (!l) { el.innerText = ""; return; }
+            const winrate = l.samples ? Math.round(100 * l.wins / l.samples) + "% win" : "—";
+            const mode = l.calibrated ? "calibration ACTIVE" : "calibration en attente de données";
+            el.classList.toggle("on", !!l.calibrated);
+            el.innerText = `Apprentissage : ${l.samples} paris réglés · ${winrate} · ${mode}`;
+        });
+    }
+
+    // Render weather edge events (une carte par ville/marché)
+    function renderWeather(events) {
+        const c = document.getElementById("weather-container");
+        if (!c) return;
+        if (!events || !events.length) {
+            c.innerHTML = `<div class="text-center text-muted padded">Aucun marché température exploitable pour l'instant. Active « Météo » et démarre le bot.</div>`;
+            return;
+        }
+        let html = "";
+        events.forEach(ev => {
+            const u = ev.unit || "";
+            const dateTxt = (ev.title && ev.title.indexOf(" on ") >= 0) ? ev.title.split(" on ").pop().replace("?", "").trim() : "";
+            let rows = "";
+            (ev.buckets || []).forEach(b => {
+                const edgeCls = b.edge > 0.05 ? "pnl-positive" : (b.edge < 0 ? "pnl-negative" : "text-muted");
+                rows += `<tr>
+                    <td>${escapeHTML(b.label)}</td>
+                    <td class="num"><strong>${Math.round(b.p * 100)}%</strong></td>
+                    <td class="num">${Math.round(b.price * 100)}¢</td>
+                    <td class="num ${edgeCls}">${b.edge >= 0 ? "+" : ""}${(b.edge * 100).toFixed(0)}</td>
+                </tr>`;
+            });
+            html += `<div class="panel weather-card">
+                <div class="panel-head">
+                    <h2>${escapeHTML(ev.city || ev.title)}${dateTxt ? " · " + escapeHTML(dateTxt) : ""}</h2>
+                    <span class="mono text-muted weather-meta">méd ${ev.median}${u} · réalisé ${ev.realized != null ? ev.realized + u : "—"} · n=${ev.n}</span>
+                </div>
+                <div class="table-wrapper"><table class="data-table">
+                    <thead><tr><th>Tranche</th><th class="num">P modèle</th><th class="num">Prix</th><th class="num">Edge ×100</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>
+            </div>`;
+        });
+        c.innerHTML = html;
     }
 
     function renderCryptoSignals(signals, updatedAt) {
