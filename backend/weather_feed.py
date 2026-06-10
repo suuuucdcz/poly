@@ -77,17 +77,18 @@ class WeatherFeed:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read().decode())
 
-        # Pacing doux + disjoncteur : les requêtes d'ensemble comptent LOURD
-        # dans le quota Open-Meteo ; après un 429 on coupe tout pendant un moment
-        # plutôt que de marteler (le 429 se prolongerait).
-        if time.time() < self._cooldown_until:
+        # Pacing doux + disjoncteur SCOPÉ À OPEN-METEO : leurs requêtes d'ensemble
+        # comptent lourd dans le quota ; après un 429 on coupe ce fournisseur un
+        # moment. Les autres (NWS...) ne doivent PAS être punis avec lui.
+        is_open_meteo = "open-meteo" in url
+        if is_open_meteo and time.time() < self._cooldown_until:
             raise RuntimeError("open-meteo en cooldown apres 429")
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(0.25 if is_open_meteo else 0.1)
         try:
             return await loop.run_in_executor(None, _fetch)
         except Exception as e:
             self.last_error = f"{type(e).__name__}: {str(e)[:90]}"
-            if getattr(e, "code", None) == 429:
+            if is_open_meteo and getattr(e, "code", None) == 429:
                 self._cooldown_until = time.time() + config.WEATHER_429_COOLDOWN
             raise
 
