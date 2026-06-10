@@ -47,6 +47,7 @@ class WeatherFeed:
         self._ens_cache = {}    # (lat,lon,unit) -> ({date: [(val,poids)]}, ts)
         self._real_cache = {}   # (lat,lon,unit) -> ((max, date, offset), ts)
         self._nws_cache = {}    # station -> (json, ts)
+        self.last_error = None  # dernière erreur réseau (diagnostic)
 
     async def _get(self, url):
         loop = asyncio.get_running_loop()
@@ -56,7 +57,14 @@ class WeatherFeed:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read().decode())
 
-        return await loop.run_in_executor(None, _fetch)
+        # Pacing doux : Open-Meteo limite ~600 req/min par IP — sur un hôte
+        # mutualisé (Render), rester nettement en-dessous évite les 429.
+        await asyncio.sleep(0.15)
+        try:
+            return await loop.run_in_executor(None, _fetch)
+        except Exception as e:
+            self.last_error = f"{type(e).__name__}: {str(e)[:90]}"
+            raise
 
     # ------------------------------------------------------------
     # DISTRIBUTIONS PONDÉRÉES DU MAX, PAR DATE LOCALE

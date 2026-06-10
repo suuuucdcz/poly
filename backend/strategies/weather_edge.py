@@ -126,10 +126,12 @@ class WeatherEdgeStrategy(Strategy):
         balance = db.get_portfolio()["balance"]
         positions = {p["token_id"]: p for p in db.get_positions()}
         signals = []
+        skip = {"city": 0, "buckets": 0, "ensemble": 0, "date": 0}
 
         for ev in events:
             city, coords = resolve_city(ev["title"])
             if not coords:
+                skip["city"] += 1
                 if ev["title"] not in self._warned_cities:
                     self._warned_cities.add(ev["title"])
                     ctx.log(f"WEATHER: ville inconnue (à ajouter dans cities.py) : '{ev['title']}'", "WARNING")
@@ -138,6 +140,7 @@ class WeatherEdgeStrategy(Strategy):
 
             buckets = [b for b in ev["buckets"] if not b["closed"]]
             if len(buckets) < 3:
+                skip["buckets"] += 1
                 continue
             unit = "F" if any("°F" in (b["label"] or "") for b in buckets) else "C"
             om_unit = "fahrenheit" if unit == "F" else "celsius"
@@ -146,9 +149,11 @@ class WeatherEdgeStrategy(Strategy):
             target = parse_target_date(ev["title"])
             by_date = await self.feed.ensemble_by_date(lat, lon, om_unit)
             if not by_date:
+                skip["ensemble"] += 1
                 continue
             target_date = match_date(sorted(by_date.keys()), target)
             if not target_date:
+                skip["date"] += 1
                 continue   # jour passé à la station (en résolution) ou trop loin
             members = inflate_members(by_date[target_date], cfg.WEATHER_SPREAD_INFLATE)
 
@@ -297,6 +302,14 @@ class WeatherEdgeStrategy(Strategy):
             sig["buckets"].sort(key=lambda x: -(x["p"] or 0))
             sig["held_any"] = any(r["held_shares"] > 0 for r in sig["buckets"])
             signals.append(sig)
+
+        # Diagnostic : des events trouvés mais aucun signal = problème de données
+        if events and not signals:
+            ctx.log(
+                f"WEATHER DIAG: {len(events)} events mais 0 signal — skips {skip} "
+                f"| dernière erreur réseau météo: {self.feed.last_error}",
+                "WARNING",
+            )
 
         # Priorité d'affichage : marchés où l'on a parié, puis ceux du jour
         signals.sort(key=lambda s: (not s["held_any"], not s["is_today"], s["date"]))

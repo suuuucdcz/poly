@@ -79,8 +79,27 @@ class PolymarketClient:
                 if len(page) < 100:
                     break
         except Exception as e:
-            self._log(f"Error fetching temperature events: {e}", "WARNING")
-            return self._temp_cache or []
+            self._log(f"DISCOVERY: requête tag échouée ({e}) — repli sur le scan paginé", "WARNING")
+            events = []
+
+        # Repli : si le tag ne renvoie rien (CDN capricieux...), scan paginé
+        # des events triés par fin la plus proche (les journaliers y sont).
+        if not events:
+            try:
+                for offset in range(0, 800, 100):
+                    page = await self.fetch_api_json(
+                        f"{self.gamma}/events?active=true&closed=false&limit=100"
+                        f"&offset={offset}&order=endDate&ascending=true"
+                    )
+                    if not page:
+                        break
+                    events.extend(page)
+                    if len(page) < 100:
+                        break
+                self._log(f"DISCOVERY: repli paginé -> {len(events)} events bruts", "INFO")
+            except Exception as e:
+                self._log(f"DISCOVERY: repli échoué aussi: {e}", "WARNING")
+                return self._temp_cache or []
         out = []
         for e in events:
             title = e.get("title") or ""
