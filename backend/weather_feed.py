@@ -24,6 +24,13 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NWS_URL = "https://api.weather.gov/stations/{sid}/observations?limit=160"
 METNO_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={lat}&lon={lon}"
 
+# api.weather.gov EXIGE un User-Agent identifiant (contact) — un UA « navigateur »
+# depuis une IP datacenter (Render) se fait rejeter par leur CDN.
+NWS_HEADERS = {
+    "User-Agent": "polyquant-paper/1.0 (github.com/suuuucdcz/poly; catesson.maxence19@gmail.com)",
+    "Accept": "application/geo+json",
+}
+
 
 def station_local_date(lon):
     """Date locale approximative de la station via le fuseau géométrique
@@ -62,11 +69,11 @@ class WeatherFeed:
         self._cooldown_until = 0.0   # pause globale après un 429 Open-Meteo
         self.ens_budget = 999        # fetchs d'ensemble restants ce tick (anti-burst)
 
-    async def _get(self, url):
+    async def _get(self, url, headers=None):
         loop = asyncio.get_running_loop()
 
         def _fetch():
-            req = urllib.request.Request(url, headers=self.headers)
+            req = urllib.request.Request(url, headers=headers or self.headers)
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read().decode())
 
@@ -173,11 +180,11 @@ class WeatherFeed:
         if cached and now - cached[1] < config.WEATHER_NWS_FORECAST_TTL:
             return cached[0]
         try:
-            pts = await self._get(f"https://api.weather.gov/points/{lat},{lon}")
+            pts = await self._get(f"https://api.weather.gov/points/{lat},{lon}", headers=NWS_HEADERS)
             url = pts.get("properties", {}).get("forecast")
             if not url:
                 return {}
-            fc = await self._get(url)
+            fc = await self._get(url, headers=NWS_HEADERS)
             out = {}
             for p in fc.get("properties", {}).get("periods", []):
                 if p.get("isDaytime") and p.get("temperatureUnit") == "F":
@@ -281,7 +288,7 @@ class WeatherFeed:
             data = cached[0]
         else:
             try:
-                data = await self._get(NWS_URL.format(sid=station_id))
+                data = await self._get(NWS_URL.format(sid=station_id), headers=NWS_HEADERS)
                 self._nws_cache[station_id] = (data, now)
             except Exception:
                 return None
