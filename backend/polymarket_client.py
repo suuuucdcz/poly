@@ -53,9 +53,11 @@ class PolymarketClient:
     async def find_temperature_events(self):
         """Découvre les events « Highest temperature in {Ville} on {Date} » et
         parse leurs buckets (tranches de degré + prix Yes)."""
+        # Tri par fraîcheur (id desc) : les marchés du lendemain viennent d'être
+        # créés et ont encore peu de volume — un tri par volume les raterait.
         url = (
-            f"{self.gamma}/events?active=true&closed=false&limit=300"
-            f"&order=volume24hr&ascending=false"
+            f"{self.gamma}/events?active=true&closed=false&limit=500"
+            f"&order=id&ascending=false"
         )
         try:
             events = await self.fetch_api_json(url)
