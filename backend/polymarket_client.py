@@ -6,6 +6,7 @@ nécessaires au règlement et à la clôture manuelle des positions.
 
 import asyncio
 import json
+import time
 import urllib.request
 
 from backend import config
@@ -18,6 +19,8 @@ class PolymarketClient:
         self.gamma = cfg.GAMMA_API
         self.clob = cfg.CLOB_API
         self._log = lambda *a, **k: None
+        self._temp_cache = []
+        self._temp_cache_ts = 0.0
 
     def set_logger(self, log):
         self._log = log
@@ -50,20 +53,34 @@ class PolymarketClient:
     # ------------------------------------------------------------
     # MARCHÉS « HIGHEST TEMPERATURE »
     # ------------------------------------------------------------
+    # Polymarket taggue ces marchés : 104596 = highest-temperature (84 = weather).
+    # La découverte par tag est insensible aux flots d'events (sport...) qui
+    # éjectaient la météo des fenêtres triées (l'API plafonne limit à 100).
+    TEMPERATURE_TAG_ID = 104596
+    _DISCOVERY_TTL = 240
+
     async def find_temperature_events(self):
         """Découvre les events « Highest temperature in {Ville} on {Date} » et
         parse leurs buckets (tranches de degré + prix Yes)."""
-        # Tri par fraîcheur (id desc) : les marchés du lendemain viennent d'être
-        # créés et ont encore peu de volume — un tri par volume les raterait.
-        url = (
-            f"{self.gamma}/events?active=true&closed=false&limit=500"
-            f"&order=id&ascending=false"
-        )
+        now = time.time()
+        if self._temp_cache and now - self._temp_cache_ts < self._DISCOVERY_TTL:
+            return self._temp_cache
+
+        events = []
         try:
-            events = await self.fetch_api_json(url)
+            for offset in (0, 100, 200):   # l'API plafonne à 100 par page
+                page = await self.fetch_api_json(
+                    f"{self.gamma}/events?active=true&closed=false&limit=100"
+                    f"&offset={offset}&tag_id={self.TEMPERATURE_TAG_ID}"
+                )
+                if not page:
+                    break
+                events.extend(page)
+                if len(page) < 100:
+                    break
         except Exception as e:
             self._log(f"Error fetching temperature events: {e}", "WARNING")
-            return []
+            return self._temp_cache or []
         out = []
         for e in events:
             title = e.get("title") or ""
@@ -92,11 +109,13 @@ class PolymarketClient:
                     "end_date": m.get("endDate") or m.get("endDateIso"),
                     "closed": bool(m.get("closed", False)) or not m.get("active", True),
                 })
-            if len(buckets) >= 3:
+            if len(buckets) >= 3 and not any(o["title"] == title for o in out):
                 out.append({
                     "title": title,
                     "slug": e.get("slug"),
                     "end_date": e.get("endDate"),
                     "buckets": buckets,
                 })
+        self._temp_cache = out
+        self._temp_cache_ts = now
         return out
