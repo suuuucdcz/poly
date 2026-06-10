@@ -51,9 +51,16 @@ CALIBRATION_REFIT_SEC = 90
 # Ensemble multi-modèles Open-Meteo (≈ 120 scénarios cumulés)
 WEATHER_MODELS = "gfs025,icon_seamless,ecmwf_ifs025"
 WEATHER_TICK_INTERVAL = 60          # cadence lente (marchés journaliers)
-WEATHER_ENS_CACHE_TTL = 1800        # cache ensemble (s) — les runs sortent toutes les 6h
-WEATHER_ENS_BUDGET_PER_TICK = 8     # nouveaux fetchs d'ensemble max par tick (anti-429)
-WEATHER_429_COOLDOWN = 120          # pause des appels Open-Meteo après un 429 (s)
+WEATHER_ENS_CACHE_TTL = 10800       # cache ensemble 3 h (runs 6-horaires ; quota gratuit serré)
+WEATHER_ENS_BUDGET_PER_TICK = 6     # nouveaux fetchs d'ensemble max par tick (anti-429)
+WEATHER_429_COOLDOWN = 300          # pause des appels Open-Meteo après un 429 (s)
+
+# Source de SECOURS quand Open-Meteo est indisponible (quota IP grillé...) :
+# met.no (institut météo norvégien, gratuit, sans clé). Prévision déterministe
+# -> on synthétise une distribution autour d'elle (sigma climatologique).
+WEATHER_METNO_TTL = 1800
+WEATHER_SYNTH_SIGMA_C = 1.6
+WEATHER_SYNTH_SIGMA_F = 2.9
 WEATHER_REALIZED_CACHE_TTL = 300    # cache du max réalisé (s)
 
 WEATHER_EDGE_THRESHOLD = 0.05       # edge mini (P calibrée − prix − frais)

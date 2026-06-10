@@ -27,7 +27,12 @@ import time
 from backend import config, db, station_bias
 from backend.calibration import Calibrator
 from backend.cities import NWS_STATIONS, resolve_city
-from backend.weather_feed import WeatherFeed
+from backend.weather_feed import WeatherFeed, station_local_date
+
+# Grille de quantiles (z-scores) pour synthétiser une distribution autour de la
+# prévision déterministe de secours (met.no) : 21 scénarios équiprobables.
+_ZS = [-1.98, -1.47, -1.18, -0.97, -0.79, -0.64, -0.50, -0.37, -0.24, -0.12,
+       0.0, 0.12, 0.24, 0.37, 0.50, 0.64, 0.79, 0.97, 1.18, 1.47, 1.98]
 from backend.weather_model import (
     bucket_probabilities,
     ensemble_summary,
@@ -73,10 +78,12 @@ class WeatherEdgeStrategy(Strategy):
     # ------------------------------------------------------------
     # Max réalisé : capteur officiel d'abord, grille avec marge sinon
     # ------------------------------------------------------------
-    async def _realized_for(self, city, lat, lon, om_unit, target_date, bias=0.0):
+    async def _realized_for(self, city, lat, lon, om_unit, target_date, bias=0.0, est=None):
         """(valeur à utiliser pour conditionner, valeur à afficher, source).
         (None, None, None) si la cible n'est pas « aujourd'hui » à la station."""
         grid_val, local_date, offset = await self.feed.realized_today(lat, lon, om_unit)
+        if local_date is None and est:
+            local_date, offset = est   # Open-Meteo indisponible : fuseau géométrique
         if local_date != target_date:
             return None, None, None
         station = NWS_STATIONS.get(city)
@@ -149,6 +156,15 @@ class WeatherEdgeStrategy(Strategy):
             # --- Distribution de la date cible (locale station) ---
             target = parse_target_date(ev["title"])
             by_date = await self.feed.ensemble_by_date(lat, lon, om_unit)
+            model_src = "ensemble"
+            if not by_date:
+                # SECOURS : Open-Meteo HS (quota épuisé...) -> met.no, distribution
+                # synthétique de 21 quantiles autour de la prévision déterministe.
+                mx = await self.feed.metno_daily_max_by_date(lat, lon, om_unit)
+                if mx:
+                    sigma = cfg.WEATHER_SYNTH_SIGMA_F if unit == "F" else cfg.WEATHER_SYNTH_SIGMA_C
+                    by_date = {d: [(m + z * sigma, 1.0) for z in _ZS] for d, m in mx.items()}
+                    model_src = "metno"
             if not by_date:
                 skip["ensemble"] += 1
                 continue
@@ -165,10 +181,15 @@ class WeatherEdgeStrategy(Strategy):
                 members = [(v + bias, w) for v, w in members]
 
             # --- Réalisé : capteur officiel (NWS) > grille - marge ---
-            realized_used, realized_disp, realized_src = await self._realized_for(
-                city, lat, lon, om_unit, target_date, bias
-            )
-            is_today = realized_src is not None
+            # Garde quota : on ne lit le réalisé que si le marché porte sur
+            # « aujourd'hui » à la station (fuseau géométrique en estimation).
+            est = station_local_date(lon)
+            is_today = (est[0] == target_date)
+            realized_used, realized_disp, realized_src = (None, None, None)
+            if is_today:
+                realized_used, realized_disp, realized_src = await self._realized_for(
+                    city, lat, lon, om_unit, target_date, bias, est
+                )
 
             parsed = [(b["label"], parse_bucket(b["label"])) for b in buckets]
             bw = cfg.WEATHER_KERNEL_BW_F if unit == "F" else cfg.WEATHER_KERNEL_BW_C
@@ -195,6 +216,7 @@ class WeatherEdgeStrategy(Strategy):
                 "realized": round(realized_disp, 1) if realized_disp is not None else None,
                 "realized_src": realized_src,
                 "bias": round(bias, 1) if bias_info else None,
+                "model_src": model_src,
                 "n": len(members),
                 "buckets": [],
                 "action": None,

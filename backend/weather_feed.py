@@ -22,6 +22,17 @@ from backend import config
 ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NWS_URL = "https://api.weather.gov/stations/{sid}/observations?limit=160"
+METNO_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={lat}&lon={lon}"
+
+
+def station_local_date(lon):
+    """Date locale approximative de la station via le fuseau géométrique
+    (lon/15h). Sert de repli quand Open-Meteo (qui donne le vrai fuseau)
+    est indisponible ; l'erreur DST de ±1 h ne change la date que près de
+    minuit, sans impact pratique sur le max journalier."""
+    import datetime as _dt
+    t = _dt.datetime.utcnow() + _dt.timedelta(hours=round(lon / 15.0))
+    return t.strftime("%Y-%m-%d"), int(round(lon / 15.0) * 3600)
 
 
 def _model_weight(member_key, weights):
@@ -149,6 +160,55 @@ class WeatherFeed:
             return result
         except Exception:
             return cached[0] if cached else (None, None, 0)
+
+    # ------------------------------------------------------------
+    # SECOURS met.no : max journalier prévu, par date locale
+    # ------------------------------------------------------------
+    async def metno_daily_max_by_date(self, lat, lon, unit="celsius"):
+        """{ 'YYYY-MM-DD' (locale géométrique): max prévu } via met.no.
+        Indépendant d'Open-Meteo (autre fournisseur, autre quota)."""
+        key = ("metno", round(lat, 3), round(lon, 3))
+        now = time.time()
+        cached = self._real_cache.get(key)
+        if cached and now - cached[1] < config.WEATHER_METNO_TTL:
+            data = cached[0]
+        else:
+            loop = asyncio.get_running_loop()
+
+            def _fetch():
+                req = urllib.request.Request(
+                    METNO_URL.format(lat=lat, lon=lon),
+                    # met.no exige un User-Agent identifiant (sinon 403)
+                    headers={"User-Agent": "polyquant-paper/1.0 github.com/suuuucdcz/poly"},
+                )
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    return json.loads(r.read().decode())
+
+            try:
+                await asyncio.sleep(0.2)
+                data = await loop.run_in_executor(None, _fetch)
+                self._real_cache[key] = (data, now)
+            except Exception as e:
+                self.last_error = f"metno {type(e).__name__}: {str(e)[:70]}"
+                return {}
+        try:
+            import datetime as _dt
+            off_h = round(lon / 15.0)
+            out = {}
+            for ts in data.get("properties", {}).get("timeseries", []):
+                t = ts.get("time")
+                v = ts.get("data", {}).get("instant", {}).get("details", {}).get("air_temperature")
+                if t is None or v is None:
+                    continue
+                local = _dt.datetime.fromisoformat(t.replace("Z", "+00:00")) + _dt.timedelta(hours=off_h)
+                d = local.strftime("%Y-%m-%d")
+                v = float(v)
+                if unit == "fahrenheit":
+                    v = v * 9.0 / 5.0 + 32.0
+                out[d] = v if d not in out else max(out[d], v)
+            return out
+        except Exception:
+            return {}
 
     # ------------------------------------------------------------
     # HISTORIQUE GRILLE (pour la calibration de biais)
