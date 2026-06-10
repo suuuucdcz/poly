@@ -393,3 +393,9 @@ class WeatherEdgeStrategy(Strategy):
                 "wins": stats["wins"],
                 "pnl": round(stats["pnl"], 2),
             }
+            # Diagnostic réseau visible de l'extérieur (cause exacte des trous de données)
+            ctx.ui_state["diag"] = {
+                "last_net_error": self.feed.last_error,
+                "nws_blend_cities": sum(1 for s in signals if s.get("nws") is not None),
+                "station_realized": sum(1 for s in signals if s.get("realized_src") == "station"),
+            }
