@@ -74,6 +74,14 @@ WEATHER_NWS_CACHE_TTL = 300
 # modèle (prise de profit / coupe de perte quand la prévision se retourne).
 WEATHER_EXIT_EDGE = 0.12
 
+# Calibration du biais grille↔station par ville, apprise sur les marchés
+# température DÉJÀ RÉSOLUS de Polymarket (la tranche gagnante révèle le max
+# officiel) comparés à l'historique de la grille Open-Meteo.
+BIAS_HISTORY_DAYS = 60        # profondeur d'historique grille
+BIAS_MIN_SAMPLES = 3          # n mini de jours résolus pour appliquer un biais
+BIAS_CLAMP = 4.0              # borne de sécurité (degrés, unité du marché)
+BIAS_REFRESH_HOURS = 12       # fréquence de re-harvest
+
 WEATHER_KELLY_FRACTION = 0.30       # sizing par edge (prudent)
 WEATHER_STAKE_MIN_USDC = 2.0
 WEATHER_STAKE_MAX_USDC = 25.0

@@ -490,6 +490,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const realizedTxt = (ev.realized != null)
                 ? `réalisé <strong class="mono">${ev.realized}${u}</strong>${srcTag}`
                 : `<span class="text-muted">pas encore de relevé du jour</span>`;
+            const biasTag = (ev.bias != null && ev.bias !== 0)
+                ? ` · biais appris <strong class="mono">${ev.bias > 0 ? "+" : ""}${ev.bias}°</strong>` : "";
 
             let rows = "";
             (ev.buckets || []).forEach(b => {
@@ -515,7 +517,7 @@ document.addEventListener("DOMContentLoaded", () => {
             html += `<div class="panel weather-card">
                 <div class="panel-head">
                     <h2>${escapeHTML(cap(ev.city))} ${todayChip}</h2>
-                    <span class="mono text-muted weather-meta">prévision méd <strong>${ev.median}${u}</strong> (${spread}) · ${realizedTxt} · ${ev.n} scénarios</span>
+                    <span class="mono text-muted weather-meta">prévision méd <strong>${ev.median}${u}</strong> (${spread}) · ${realizedTxt}${biasTag} · ${ev.n} scénarios</span>
                 </div>
                 <div class="table-wrapper"><table class="data-table">
                     <thead><tr><th>Tranche</th><th>Proba modèle</th><th class="num">Prix marché</th><th class="num">Edge ×100</th><th>Pari</th></tr></thead>

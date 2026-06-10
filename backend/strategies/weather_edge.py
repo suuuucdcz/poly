@@ -24,7 +24,7 @@ Règlement final par le tick principal. 100 % paper.
 
 import time
 
-from backend import config, db
+from backend import config, db, station_bias
 from backend.calibration import Calibrator
 from backend.cities import NWS_STATIONS, resolve_city
 from backend.weather_feed import WeatherFeed
@@ -60,6 +60,8 @@ class WeatherEdgeStrategy(Strategy):
         self.cfg = cfg
         self.feed = WeatherFeed(cfg)
         self._last_refit = 0.0
+        self._last_bias_harvest = 0.0
+        self._biases = db.get_city_biases()   # ville -> (bias, std, n)
         self._warned_cities = set()
         self.calibrator = Calibrator(
             n_bins=cfg.CALIBRATION_BINS,
@@ -71,7 +73,7 @@ class WeatherEdgeStrategy(Strategy):
     # ------------------------------------------------------------
     # Max réalisé : capteur officiel d'abord, grille avec marge sinon
     # ------------------------------------------------------------
-    async def _realized_for(self, city, lat, lon, om_unit, target_date):
+    async def _realized_for(self, city, lat, lon, om_unit, target_date, bias=0.0):
         """(valeur à utiliser pour conditionner, valeur à afficher, source).
         (None, None, None) si la cible n'est pas « aujourd'hui » à la station."""
         grid_val, local_date, offset = await self.feed.realized_today(lat, lon, om_unit)
@@ -84,10 +86,13 @@ class WeatherEdgeStrategy(Strategy):
                 return nws, nws, "station"     # capteur officiel : pas de marge
         if grid_val is None:
             return None, None, None
+        # Repli grille : borne BASSE prudente du max officiel. Si la station lit
+        # plus froid que la grille (biais négatif), il faut l'intégrer, sinon on
+        # éliminerait des tranches à tort.
         margin = self.cfg.WEATHER_REALIZED_MARGIN_C
         if om_unit == "fahrenheit":
             margin *= 1.8
-        return grid_val - margin, grid_val, "grille"
+        return grid_val + min(0.0, bias) - margin, grid_val, "grille"
 
     # ------------------------------------------------------------
     # Boucle
@@ -102,6 +107,15 @@ class WeatherEdgeStrategy(Strategy):
                 self.calibrator.fit(db.get_bet_samples(3000, kind="weather"))
             except Exception:
                 pass
+
+        # Calibration du biais grille↔station (marchés résolus), toutes les 12 h
+        if now - self._last_bias_harvest > cfg.BIAS_REFRESH_HOURS * 3600:
+            self._last_bias_harvest = now
+            try:
+                await station_bias.harvest(self.feed, ctx.client, ctx.log)
+                self._biases = db.get_city_biases()
+            except Exception as e:
+                ctx.log(f"BIAS: harvest impossible: {e}", "WARNING")
 
         try:
             events = await ctx.client.find_temperature_events()
@@ -138,9 +152,15 @@ class WeatherEdgeStrategy(Strategy):
                 continue   # jour passé à la station (en résolution) ou trop loin
             members = inflate_members(by_date[target_date], cfg.WEATHER_SPREAD_INFLATE)
 
+            # --- Biais grille↔station appris des marchés résolus ---
+            bias_info = self._biases.get(city)
+            bias = bias_info[0] if bias_info else 0.0
+            if bias:
+                members = [(v + bias, w) for v, w in members]
+
             # --- Réalisé : capteur officiel (NWS) > grille - marge ---
             realized_used, realized_disp, realized_src = await self._realized_for(
-                city, lat, lon, om_unit, target_date
+                city, lat, lon, om_unit, target_date, bias
             )
             is_today = realized_src is not None
 
@@ -167,6 +187,7 @@ class WeatherEdgeStrategy(Strategy):
                 "spread": [round(summ["min"], 1), round(summ["max"], 1)] if summ else None,
                 "realized": round(realized_disp, 1) if realized_disp is not None else None,
                 "realized_src": realized_src,
+                "bias": round(bias, 1) if bias_info else None,
                 "n": len(members),
                 "buckets": [],
                 "action": None,
@@ -274,9 +295,11 @@ class WeatherEdgeStrategy(Strategy):
                 )
 
             sig["buckets"].sort(key=lambda x: -(x["p"] or 0))
+            sig["held_any"] = any(r["held_shares"] > 0 for r in sig["buckets"])
             signals.append(sig)
 
-        signals.sort(key=lambda s: (not s["is_today"], s["date"]))
+        # Priorité d'affichage : marchés où l'on a parié, puis ceux du jour
+        signals.sort(key=lambda s: (not s["held_any"], not s["is_today"], s["date"]))
         if ctx.ui_state is not None:
             ctx.ui_state["weather"] = signals[: cfg.WEATHER_SIGNALS_MAX]
             ctx.ui_state["updated_at"] = now

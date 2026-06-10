@@ -113,6 +113,17 @@ def init_db(default_budget=1000.0):
             cursor.execute("ALTER TABLE bet_log ADD COLUMN kind TEXT")
         except sqlite3.OperationalError:
             pass
+
+        # Biais grille<->station officielle appris des marchés résolus (par ville)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS city_bias (
+            city TEXT PRIMARY KEY,
+            bias REAL NOT NULL,
+            std REAL,
+            n INTEGER,
+            updated TEXT
+        )
+        """)
         
         # Check if portfolio already exists
         cursor.execute("SELECT COUNT(*) FROM portfolio")
@@ -324,6 +335,25 @@ def settle_bet(token_id, won, pnl):
             (won_val, pnl, row["id"]),
         )
         conn.commit()
+
+
+def set_city_bias(city, bias, std, n):
+    with get_db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO city_bias (city, bias, std, n, updated) VALUES (?, ?, ?, ?, ?)",
+            (city, bias, std, n, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+
+
+def get_city_biases():
+    """{ville: (bias, std, n)} — biais appris des marchés résolus."""
+    try:
+        with get_db() as conn:
+            rows = conn.execute("SELECT city, bias, std, n FROM city_bias").fetchall()
+            return {r["city"]: (r["bias"], r["std"] or 0.0, r["n"] or 0) for r in rows}
+    except sqlite3.OperationalError:
+        return {}
 
 
 def get_bet_samples(limit=3000, kind=None):

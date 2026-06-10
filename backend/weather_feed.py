@@ -131,6 +131,33 @@ class WeatherFeed:
             return cached[0] if cached else (None, None, 0)
 
     # ------------------------------------------------------------
+    # HISTORIQUE GRILLE (pour la calibration de biais)
+    # ------------------------------------------------------------
+    async def grid_daily_max_history(self, lat, lon, unit="celsius"):
+        """{ 'YYYY-MM-DD' (locale station): max grille } sur ~60 jours passés."""
+        key = ("hist", round(lat, 3), round(lon, 3), unit)
+        now = time.time()
+        cached = self._real_cache.get(key)
+        if cached and now - cached[1] < 12 * 3600:
+            return cached[0]
+        url = (
+            f"{FORECAST_URL}?latitude={lat}&longitude={lon}"
+            f"&daily=temperature_2m_max&temperature_unit={unit}"
+            f"&past_days={config.BIAS_HISTORY_DAYS}&forecast_days=1&timezone=auto"
+        )
+        try:
+            d = await self._get(url)
+            daily = d.get("daily", {})
+            out = {}
+            for dt, v in zip(daily.get("time", []), daily.get("temperature_2m_max", [])):
+                if v is not None:
+                    out[dt] = float(v)
+            self._real_cache[key] = (out, now)
+            return out
+        except Exception:
+            return cached[0] if cached else {}
+
+    # ------------------------------------------------------------
     # MAX RÉALISÉ — CAPTEUR OFFICIEL NWS (villes US)
     # ------------------------------------------------------------
     async def nws_max_today(self, station_id, local_date, utc_offset, unit="celsius"):
