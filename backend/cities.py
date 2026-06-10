@@ -34,6 +34,33 @@ CITIES = {
     "london": (51.505, 0.055),           # London City Airport (EGLC)
     "hong kong": (22.302, 114.174),      # Hong Kong Observatory
 
+    # --- stations lues dans les descriptions officielles (2e vague) ---
+    "ankara": (40.128, 32.995),          # Esenboğa Intl
+    "busan": (35.179, 128.938),          # Gimhae Intl
+    "cape town": (-33.971, 18.602),      # Cape Town Intl
+    "chengdu": (30.578, 103.947),        # Shuangliu Intl
+    "chongqing": (29.719, 106.642),      # Jiangbei Intl
+    "guangzhou": (23.392, 113.299),      # Baiyun Intl
+    "helsinki": (60.317, 24.963),        # Vantaa
+    "istanbul": (41.262, 28.742),        # Istanbul Airport (IST)
+    "jeddah": (21.680, 39.157),          # King Abdulaziz Intl
+    "jinan": (36.857, 117.216),          # Yaoqiang Intl
+    "karachi": (24.894, 66.939),         # Masroor Airbase
+    "kuala lumpur": (2.744, 101.710),    # KLIA
+    "lucknow": (26.761, 80.889),         # Chaudhary Charan Singh Intl
+    "manila": (14.509, 121.020),         # Ninoy Aquino Intl
+    "milan": (45.630, 8.728),            # Malpensa
+    "moscow": (55.596, 37.267),          # Vnukovo Intl
+    "munich": (48.354, 11.786),          # Munich Airport
+    "qingdao": (36.362, 120.088),        # Jiaodong Intl
+    "seoul": (37.469, 126.451),          # Incheon Intl
+    "taipei": (25.069, 121.552),         # Songshan
+    "tel aviv": (32.000, 34.871),        # Ben Gurion Intl
+    "warsaw": (52.166, 20.967),          # Chopin
+    "wellington": (-41.327, 174.805),    # Wellington Intl
+    "wuhan": (30.784, 114.208),          # Tianhe Intl
+    "zhengzhou": (34.520, 113.841),      # Xinzheng Intl
+
     # --- vus sur des marchés, station non confirmée (approx. station principale) ---
     "shenzhen": (22.547, 114.085),
     "shanghai": (31.197, 121.336),       # Hongqiao
