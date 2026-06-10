@@ -26,8 +26,9 @@ import time
 
 from backend import config, db, station_bias
 from backend.calibration import Calibrator
-from backend.cities import NWS_STATIONS, resolve_city
+from backend.cities import NWS_STATIONS, region_of, resolve_city
 from backend.weather_feed import WeatherFeed, station_local_date
+from backend.weather_model import weighted_median
 
 # Grille de quantiles (z-scores) pour synthétiser une distribution autour de la
 # prévision déterministe de secours (met.no) : 21 scénarios équiprobables.
@@ -136,6 +137,14 @@ class WeatherEdgeStrategy(Strategy):
         skip = {"city": 0, "buckets": 0, "ensemble": 0, "date": 0}
         self.feed.ens_budget = cfg.WEATHER_ENS_BUDGET_PER_TICK
 
+        # Exposition (au coût) par RÉGION météo — une canicule régionale frappe
+        # toutes les villes voisines en même temps, on plafonne le panier.
+        region_open = {}
+        for p in positions.values():
+            cname, _ = resolve_city(p["question"])
+            r = region_of(cname)
+            region_open[r] = region_open.get(r, 0.0) + p["shares"] * p["avg_price"]
+
         for ev in events:
             city, coords = resolve_city(ev["title"])
             if not coords:
@@ -172,13 +181,27 @@ class WeatherEdgeStrategy(Strategy):
             if not target_date:
                 skip["date"] += 1
                 continue   # jour passé à la station (en résolution) ou trop loin
-            members = inflate_members(by_date[target_date], cfg.WEATHER_SPREAD_INFLATE)
-
-            # --- Biais grille↔station appris des marchés résolus ---
+            # --- Incertitude par ville : les villes au biais instable (std haut)
+            # méritent une distribution plus large et des mises plus petites.
             bias_info = self._biases.get(city)
             bias = bias_info[0] if bias_info else 0.0
+            city_std = bias_info[1] if bias_info else 0.8
+            inflate = min(1.5, cfg.WEATHER_SPREAD_INFLATE + cfg.WEATHER_STD_INFLATE_K * city_std)
+            members = inflate_members(by_date[target_date], inflate)
             if bias:
                 members = [(v + bias, w) for v, w in members]
+
+            # --- 2e avis : prévision NWS officielle (villes US) ---
+            nws_fx = None
+            if city in NWS_STATIONS and unit == "F":
+                nf = await self.feed.nws_forecast_max(lat, lon)
+                v = nf.get(target_date)
+                if v is not None:
+                    med = weighted_median(members)
+                    if abs(v - med) <= 8:
+                        shift = cfg.WEATHER_NWS_BLEND * (v - med)
+                        members = [(m + shift, w) for m, w in members]
+                        nws_fx = v
 
             # --- Réalisé : capteur officiel (NWS) > grille - marge ---
             # Garde quota : on ne lit le réalisé que si le marché porte sur
@@ -217,6 +240,7 @@ class WeatherEdgeStrategy(Strategy):
                 "realized_src": realized_src,
                 "bias": round(bias, 1) if bias_info else None,
                 "model_src": model_src,
+                "nws": nws_fx,
                 "n": len(members),
                 "buckets": [],
                 "action": None,
@@ -309,8 +333,13 @@ class WeatherEdgeStrategy(Strategy):
                 f = (p_cal - ask) / (1.0 - ask) if ask < 1.0 else 0.0
                 if f <= 0:
                     continue
-                stake = cfg.WEATHER_KELLY_FRACTION * f * portfolio_value
-                stake = min(stake, cfg.WEATHER_STAKE_MAX_USDC,
+                # Kelly amorti par l'incertitude de la ville (#6)
+                kelly = cfg.WEATHER_KELLY_FRACTION / (1.0 + cfg.WEATHER_STD_KELLY_DAMP * city_std)
+                stake = kelly * f * portfolio_value
+                # Plafond régional (#5)
+                region = region_of(city)
+                region_left = cfg.WEATHER_MAX_REGION_USDC - region_open.get(region, 0.0)
+                stake = min(stake, region_left, cfg.WEATHER_STAKE_MAX_USDC,
                             ctx.risk.max_trade_usdc(balance, portfolio_value),
                             ask_size * ask)
                 if stake < cfg.WEATHER_STAKE_MIN_USDC:
@@ -326,6 +355,7 @@ class WeatherEdgeStrategy(Strategy):
                 db.add_trade(b["market_id"], q, b["yes_token"], "BUY", b["yes_outcome"], shares, ask)
                 db.log_bet(b["yes_token"], city, b["label"], b["yes_outcome"], True, ask, p, edge,
                            0.0, 0, 0.0, (realized_used or 0.0), shares, cost, kind="weather")
+                region_open[region] = region_open.get(region, 0.0) + cost
                 bought += 1
                 sig["action"] = f"BUY {b['label']}"
                 for row in sig["buckets"]:

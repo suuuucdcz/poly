@@ -162,6 +162,36 @@ class WeatherFeed:
             return cached[0] if cached else (None, None, 0)
 
     # ------------------------------------------------------------
+    # PRÉVISION NWS OFFICIELLE (villes US) — le forecaster humain,
+    # déjà corrigé du biais de station. Sert de 2e avis (blend).
+    # ------------------------------------------------------------
+    async def nws_forecast_max(self, lat, lon):
+        """{ 'YYYY-MM-DD' (locale, offsets NWS): max prévu °F } ou {}."""
+        key = ("nwsf", round(lat, 3), round(lon, 3))
+        now = time.time()
+        cached = self._real_cache.get(key)
+        if cached and now - cached[1] < config.WEATHER_NWS_FORECAST_TTL:
+            return cached[0]
+        try:
+            pts = await self._get(f"https://api.weather.gov/points/{lat},{lon}")
+            url = pts.get("properties", {}).get("forecast")
+            if not url:
+                return {}
+            fc = await self._get(url)
+            out = {}
+            for p in fc.get("properties", {}).get("periods", []):
+                if p.get("isDaytime") and p.get("temperatureUnit") == "F":
+                    d = (p.get("startTime") or "")[:10]   # heure LOCALE fournie par la NWS
+                    t = p.get("temperature")
+                    if d and t is not None:
+                        out[d] = float(t)
+            self._real_cache[key] = (out, now)
+            return out
+        except Exception as e:
+            self.last_error = f"nwsf {type(e).__name__}: {str(e)[:70]}"
+            return cached[0] if cached else {}
+
+    # ------------------------------------------------------------
     # SECOURS met.no : max journalier prévu, par date locale
     # ------------------------------------------------------------
     async def metno_daily_max_by_date(self, lat, lon, unit="celsius"):

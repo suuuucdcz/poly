@@ -80,6 +80,37 @@ CITIES = {
 }
 
 
+# Ville -> région météo (régimes synoptiques partagés : une canicule au Texas
+# touche Austin+Dallas+Houston ensemble -> l'exposition se plafonne PAR RÉGION).
+REGIONS = {
+    # Amérique du Nord
+    **{c: "noram" for c in ["atlanta", "austin", "chicago", "dallas", "denver",
+                             "houston", "los angeles", "miami", "san francisco",
+                             "seattle", "new york", "nyc", "philadelphia",
+                             "washington", "phoenix", "toronto"]},
+    # Amérique latine
+    **{c: "latam" for c in ["mexico city", "panama city", "buenos aires",
+                             "sao paulo", "são paulo"]},
+    # Europe
+    **{c: "europe" for c in ["london", "paris", "amsterdam", "berlin", "madrid",
+                              "moscow", "munich", "warsaw", "helsinki", "milan"]},
+    # Asie
+    **{c: "asia" for c in ["hong kong", "shenzhen", "shanghai", "beijing",
+                            "tokyo", "singapore", "seoul", "busan", "taipei",
+                            "chengdu", "chongqing", "guangzhou", "qingdao",
+                            "jinan", "wuhan", "zhengzhou", "kuala lumpur",
+                            "manila", "karachi", "lucknow"]},
+    # Moyen-Orient / Turquie
+    **{c: "mea" for c in ["dubai", "jeddah", "tel aviv", "istanbul", "ankara"]},
+    "wellington": "oceania",
+    "cape town": "africa",
+}
+
+
+def region_of(city):
+    return REGIONS.get(city, "other")
+
+
 # Ville -> identifiant de la station NWS (api.weather.gov) = LE capteur officiel
 # des marchés US. Permet de lire le max réalisé EXACT (et non la grille météo).
 NWS_STATIONS = {

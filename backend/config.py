@@ -105,6 +105,20 @@ BIAS_MIN_SAMPLES = 3          # n mini de jours résolus pour appliquer un biais
 BIAS_CLAMP = 4.0              # borne de sécurité (degrés, unité du marché)
 BIAS_REFRESH_HOURS = 12       # fréquence de re-harvest
 
+# Plafond d'exposition par RÉGION météo (les villes d'une région partagent le
+# même régime : 10 paris Texas = 1 seul pari canicule).
+WEATHER_MAX_REGION_USDC = 90.0
+
+# Incertitude par ville (std du biais appris) : élargit la distribution et
+# réduit Kelly pour les villes imprévisibles (Dallas std 1.7) vs fiables (Madrid 0.3).
+WEATHER_STD_INFLATE_K = 0.10        # inflation += K * std
+WEATHER_STD_KELLY_DAMP = 0.5        # kelly /= (1 + DAMP * std)
+
+# Blend avec la prévision NWS officielle (villes US) : moyenne entre la médiane
+# d'ensemble et la prévision du forecaster (déjà corrigée station par des humains).
+WEATHER_NWS_BLEND = 0.5             # poids du recentrage vers la prévision NWS
+WEATHER_NWS_FORECAST_TTL = 10800
+
 WEATHER_KELLY_FRACTION = 0.30       # sizing par edge (prudent)
 WEATHER_STAKE_MIN_USDC = 2.0
 WEATHER_STAKE_MAX_USDC = 25.0
