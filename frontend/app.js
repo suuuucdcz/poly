@@ -17,6 +17,9 @@ document.addEventListener("DOMContentLoaded", () => {
     let recentEquityStr = "";
     let recentWeatherStr = "";
     let cachedEquityHistory = [];
+    let lastWeather = [];        // derniers signaux météo (/api/signals)
+    let lastWeatherUpdated = 0;
+    let lastPositions = [];      // dernières positions (/api/portfolio)
 
     // ===================== DOM =====================
     const valTotalEquity = document.getElementById("val-total-equity");
@@ -182,6 +185,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             renderPositions(data.positions);
+            lastPositions = data.positions || [];
+            renderWeatherTab();
         } catch (e) {
             console.error("Error fetching portfolio:", e);
         }
@@ -284,8 +289,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch("/api/signals");
             if (!res.ok) return;
             const data = await res.json();
-            renderWeather(data.weather || [], data.updated_at || 0);
+            lastWeather = data.weather || [];
+            lastWeatherUpdated = data.updated_at || 0;
             renderLearning(data.learning);
+            renderWeatherTab();
         } catch (e) {
             // silencieux : le panneau se remplira au prochain tick
         }
@@ -302,50 +309,179 @@ document.addEventListener("DOMContentLoaded", () => {
         el.innerText = `Apprentissage : ${l.samples} paris réglés · ${winrate} · PnL ${pnl} · ${mode}`;
     }
 
-    function renderWeather(events, updatedAt) {
-        if (!weatherContainer) return;
-        const str = JSON.stringify(events);
-        if (str === recentWeatherStr) return;
-        recentWeatherStr = str;
+    // ---------- Helpers visuels météo ----------
 
-        if (!events.length) {
-            weatherContainer.innerHTML = `<div class="text-center text-muted padded">Aucun marché température exploitable pour l'instant — le bot scanne en continu (les villes du lendemain apparaissent au fil de la journée).</div>`;
-            return;
+    // Ordre numérique des tranches (les « or below » avant, « or higher » après)
+    function bucketKey(label) {
+        const m = String(label).match(/-?\d+/);
+        if (!m) return 0;
+        const v = parseInt(m[0], 10);
+        const low = String(label).toLowerCase();
+        if (low.includes("below") || low.includes("lower")) return v - 0.25;
+        if (low.includes("higher") || low.includes("above")) return v + 0.25;
+        return v;
+    }
+
+    // Libellé court pour la jauge ("88-89°F" -> "88-89", "98°F or higher" -> "98+")
+    function shortLabel(label) {
+        return String(label).replace(/°[CF]/g, "")
+            .replace(/ or higher| or above/i, "+")
+            .replace(/ or below| or lower/i, "−").trim();
+    }
+
+    // Bornes numériques d'une tranche (règle de troncature : "88-89" couvre [88,90[)
+    function bucketRange(label) {
+        const nums = String(label).match(/-?\d+/g);
+        if (!nums) return null;
+        const low = String(label).toLowerCase();
+        const a = parseInt(nums[0], 10);
+        if (low.includes("below") || low.includes("lower")) return [-Infinity, a + 0.999];
+        if (low.includes("higher") || low.includes("above")) return [a, Infinity];
+        if (nums.length >= 2) {
+            const b = parseInt(nums[1], 10);
+            return [Math.min(a, b), Math.max(a, b) + 0.999];
         }
+        return [a, a + 0.999];
+    }
+
+    // Jauge : mini-histogramme de la distribution, tranche pariée en vert,
+    // ▼ = prévision médiane, ● = relevé du jour
+    function buildGauge(ev, betLabel) {
+        const buckets = (ev.buckets || []).filter(b => b.p !== null && b.p !== undefined)
+            .slice().sort((a, b) => bucketKey(a.label) - bucketKey(b.label));
+        if (!buckets.length) return "";
+        const maxP = Math.max(...buckets.map(b => b.p), 0.01);
+        let segs = "";
+        buckets.forEach(b => {
+            const h = Math.max(3, Math.round((b.p / maxP) * 44));
+            const isBet = betLabel && b.label === betLabel;
+            const rng = bucketRange(b.label);
+            const hasMed = rng && ev.median !== null && ev.median >= rng[0] && ev.median <= rng[1];
+            const hasReal = rng && ev.realized !== null && ev.realized !== undefined && ev.realized >= rng[0] && ev.realized <= rng[1];
+            segs += `<div class="gauge-seg${isBet ? " bet" : ""}">
+                <span class="gauge-mark">${hasMed ? "▼" : (hasReal ? "●" : "")}</span>
+                <div class="gauge-bar" style="height:${h}px"></div>
+                <span class="gauge-cap">${escapeHTML(shortLabel(b.label))}</span>
+            </div>`;
+        });
+        return `<div class="gauge">${segs}</div>
+                <div class="gauge-legend mono">▼ prévision${ev.realized != null ? " · ● relevé" : ""} · <span class="gauge-bet-dot"></span> ton pari</div>`;
+    }
+
+    // Phrase de statut, en clair
+    function betStatusLine(ev, label) {
+        const rng = bucketRange(label);
+        if (!rng || ev.median === null) return "";
+        if (ev.realized != null && ev.realized > rng[1]) {
+            return `<div class="bet-status bad">❌ Le relevé (${ev.realized}°) a déjà dépassé ta tranche</div>`;
+        }
+        if (ev.median >= rng[0] && ev.median <= rng[1]) {
+            const extra = (ev.realized != null && ev.realized >= rng[0]) ? " — le relevé y est aussi 🔥" : "";
+            return `<div class="bet-status ok">✅ La prévision (${ev.median}°) est dans ta tranche${extra}</div>`;
+        }
+        const d = ev.median < rng[0] ? (rng[0] - ev.median) : (ev.median - rng[1]);
+        return `<div class="bet-status warn">⚠️ La prévision (${ev.median}°) est à ~${d.toFixed(1)}° de ta tranche</div>`;
+    }
+
+    function parseCityDate(question) {
+        const m = String(question).match(/in (.+?) on ([A-Za-z]+ \d+)/);
+        return { city: m ? m[1] : "?", date: m ? m[2] : "" };
+    }
+
+    // ---------- Rendu de l'onglet Météo (visuel + pro) ----------
+    function renderWeatherTab() {
+        if (!weatherContainer) return;
+        const hash = JSON.stringify([lastWeather, lastPositions.map(p => [p.token_id, p.shares, p.current_price])]);
+        if (hash === recentWeatherStr) return;
+        recentWeatherStr = hash;
 
         let html = "";
-
-        // --- 1. Paris en cours (toutes villes confondues) ---
-        const bets = [];
-        events.forEach(ev => (ev.buckets || []).forEach(b => {
-            if (b.held_shares > 0) bets.push({ ev, b });
-        }));
-        if (bets.length) {
-            let rows = "";
-            bets.forEach(({ ev, b }) => {
-                const value = b.held_shares * b.price;
-                const cost = b.held_shares * (b.held_avg || b.price);
-                const pnl = value - cost;
-                const cls = pnl >= 0 ? "pnl-positive" : "pnl-negative";
-                rows += `<tr>
-                    <td><strong>${escapeHTML(cap(ev.city))}</strong> <span class="text-muted">· ${escapeHTML(ev.date || "")}</span></td>
-                    <td><span class="history-action buy">${escapeHTML(b.label)}</span></td>
-                    <td class="num mono">${b.held_shares.toFixed(1)} @ ${(b.held_avg || 0).toFixed(2)}</td>
-                    <td class="num mono">${Math.round(b.price * 100)}¢</td>
-                    <td class="num mono">${value.toFixed(2)} $</td>
-                    <td class="num mono ${cls}"><strong>${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} $</strong></td>
-                </tr>`;
-            });
-            html += `<div class="panel weather-bets">
-                <div class="panel-head"><h2>🎯 Paris en cours (${bets.length})</h2></div>
-                <div class="table-wrapper"><table class="data-table">
-                    <thead><tr><th>Ville · Date</th><th>Tranche pariée</th><th class="num">Parts @ prix</th><th class="num">Prix actuel</th><th class="num">Valeur</th><th class="num">PnL latent</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                </table></div>
-            </div>`;
+        html += renderMyBets();
+        html += renderTargets();
+        html += renderProSection();
+        if (!html) {
+            html = `<div class="text-center text-muted padded">Aucun marché température exploitable pour l'instant — le bot scanne en continu (les villes du lendemain apparaissent au fil de la journée).</div>`;
         }
+        weatherContainer.innerHTML = html;
+    }
 
-        // --- 2. Une carte par ville/marché : prévision + tranches ---
+    // === SECTION VISUELLE 1 : mes paris ===
+    function renderMyBets() {
+        if (!lastPositions.length) {
+            return `<div class="section-h"><h2>🎯 Mes paris</h2></div>
+                    <div class="panel text-center text-muted padded">Aucun pari en cours — le bot achète dès qu'une tranche sous-évaluée apparaît.</div>`;
+        }
+        let cards = "";
+        let totalCost = 0, totalPnl = 0;
+        lastPositions.forEach(pos => {
+            // retrouver le marché + la tranche dans les signaux
+            const ev = lastWeather.find(e => pos.question.startsWith(e.title));
+            const label = ev ? pos.question.slice(ev.title.length).trim()
+                             : (pos.question.split("?")[1] || "").trim();
+            const bucket = ev ? (ev.buckets || []).find(b => b.label === label) : null;
+            const pd = ev ? { city: ev.city, date: ev.date } : parseCityDate(pos.question);
+
+            const px = bucket ? bucket.price : pos.current_price;
+            const cost = pos.shares * pos.avg_price;
+            const value = pos.shares * px;
+            const pnl = value - cost;
+            const winGain = pos.shares * 1.0 - cost;
+            totalCost += cost; totalPnl += pnl;
+            const pnlCls = pnl >= 0 ? "pnl-positive" : "pnl-negative";
+
+            cards += `<div class="bet-card panel">
+                <div class="bet-head">
+                    <div>
+                        <div class="bet-city">${escapeHTML(cap(pd.city))}</div>
+                        <div class="bet-date mono">${escapeHTML(pd.date || "")}${ev && ev.is_today ? ` · <span class="chip chip-today">AUJOURD'HUI</span>` : ""}</div>
+                    </div>
+                    <span class="bet-label-chip">${escapeHTML(label || pos.outcome)}</span>
+                </div>
+                ${ev ? buildGauge(ev, label) : `<div class="bet-status wait">⏳ Marché clos — en attente du résultat officiel</div>`}
+                ${ev ? betStatusLine(ev, label) : ""}
+                <div class="bet-money mono">
+                    <div><span class="bm-k">Mise</span><span class="bm-v">${cost.toFixed(2)} $</span></div>
+                    <div><span class="bm-k">Valeur</span><span class="bm-v">${value.toFixed(2)} $</span></div>
+                    <div><span class="bm-k">Si gagné</span><span class="bm-v pnl-positive">+${winGain.toFixed(2)} $</span></div>
+                    <div><span class="bm-k">PnL latent</span><span class="bm-v ${pnlCls}">${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} $</span></div>
+                </div>
+            </div>`;
+        });
+        const totCls = totalPnl >= 0 ? "pnl-positive" : "pnl-negative";
+        return `<div class="section-h"><h2>🎯 Mes paris (${lastPositions.length})</h2>
+                <span class="mono section-sub">misé ${totalCost.toFixed(2)} $ · PnL latent <span class="${totCls}">${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)} $</span></span></div>
+                <div class="bets-grid">${cards}</div>`;
+    }
+
+    // === SECTION VISUELLE 2 : prochaines cibles ===
+    function renderTargets() {
+        const opps = [];
+        lastWeather.forEach(ev => (ev.buckets || []).forEach(b => {
+            if (!b.held_shares && b.edge !== null && b.edge !== undefined
+                && b.edge >= 0.05 && b.price > 0.02 && b.price < 0.60) {
+                opps.push({ ev, b });
+            }
+        }));
+        opps.sort((a, b) => b.b.edge - a.b.edge);
+        let inner;
+        if (!opps.length) {
+            inner = `<span class="text-muted">Rien d'assez juteux pour l'instant — le bot attend la prochaine occasion.</span>`;
+        } else {
+            inner = opps.slice(0, 8).map(({ ev, b }) =>
+                `<span class="opp-chip"><strong>${escapeHTML(cap(ev.city))}</strong> · ${escapeHTML(b.label)} — ${Math.round(b.price * 100)}¢ <span class="pnl-positive">edge +${Math.round(b.edge * 100)}</span></span>`
+            ).join("");
+        }
+        return `<div class="section-h"><h2>🔭 Prochaines cibles</h2>
+                <span class="mono section-sub">tranches sous-évaluées détectées au dernier scan</span></div>
+                <div class="panel targets">${inner}</div>`;
+    }
+
+    // === SECTION PRO : tous les marchés en détail ===
+    function renderProSection() {
+        const events = lastWeather;
+        if (!events.length) return "";
+        let html = `<div class="section-h"><h2>🔬 Analyse pro — ${events.length} marchés scannés</h2>
+                    <span class="mono section-sub">${lastWeatherUpdated ? "maj " + new Date(lastWeatherUpdated * 1000).toLocaleTimeString() : ""}</span></div>`;
         events.forEach(ev => {
             const u = "°" + (ev.unit || "C");
             const spread = ev.spread ? `${ev.spread[0]}${u} → ${ev.spread[1]}${u}` : "";
@@ -388,10 +524,7 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>`;
         });
 
-        if (updatedAt) {
-            html += `<div class="text-center text-muted mono weather-updated">maj ${new Date(updatedAt * 1000).toLocaleTimeString()}</div>`;
-        }
-        weatherContainer.innerHTML = html;
+        return html;
     }
 
     // ===================== CONSOLE =====================

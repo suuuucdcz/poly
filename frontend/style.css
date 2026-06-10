@@ -339,12 +339,79 @@ select.form-control { cursor: pointer; }
 .crypto-learn { font-size: 10.5px; color: var(--text-muted); }
 .crypto-learn.on { color: var(--green); }
 
-/* --- Weather Edge cards --- */
+/* --- Weather Edge --- */
 .weather-list { display: flex; flex-direction: column; gap: 14px; }
 .weather-card { margin-bottom: 0; border-left: 3px solid var(--amber); }
 .weather-meta { font-size: 11px; }
-.weather-bets { margin-bottom: 0; border-left: 3px solid var(--green); }
-.weather-updated { font-size: 10.5px; padding: 4px 0 10px; }
+
+/* En-têtes de section (Mes paris / Cibles / Analyse pro) */
+.section-h {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin: 6px 2px 0;
+}
+.section-h h2 { font-size: 15px; font-weight: 700; }
+.section-sub { font-size: 11px; color: var(--text-muted); }
+
+/* --- Cartes de paris (section visuelle) --- */
+.bets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 14px;
+}
+.bet-card { margin-bottom: 0; border-left: 3px solid var(--green); }
+.bet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.bet-city { font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
+.bet-date { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.bet-label-chip {
+    font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+    padding: 6px 12px; border-radius: 5px; white-space: nowrap;
+    background: rgba(0,230,168,0.12); color: var(--green);
+    border: 1px solid rgba(0,230,168,0.4);
+}
+
+/* Jauge : mini-histogramme de la distribution */
+.gauge {
+    display: flex; align-items: flex-end; gap: 3px;
+    padding: 16px 2px 4px; min-height: 78px;
+}
+.gauge-seg { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.gauge-mark { font-size: 9px; color: var(--amber); height: 12px; line-height: 12px; }
+.gauge-bar {
+    width: 100%; border-radius: 2px 2px 0 0;
+    background: rgba(56,189,248,0.35);
+}
+.gauge-seg.bet .gauge-bar { background: var(--green); box-shadow: 0 0 8px rgba(0,230,168,0.45); }
+.gauge-cap { font-size: 8.5px; color: var(--text-dim); font-family: var(--font-mono); white-space: nowrap; }
+.gauge-seg.bet .gauge-cap { color: var(--green); font-weight: 700; }
+.gauge-legend { font-size: 9.5px; color: var(--text-dim); margin: 2px 2px 8px; }
+.gauge-bet-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+    background: var(--green); vertical-align: -1px;
+}
+
+/* Phrase de statut */
+.bet-status { font-size: 12px; padding: 7px 10px; border-radius: 4px; margin-bottom: 10px; }
+.bet-status.ok   { background: rgba(0,230,168,0.08); color: var(--green); }
+.bet-status.warn { background: rgba(245,165,36,0.10); color: var(--amber); }
+.bet-status.bad  { background: rgba(255,77,109,0.10); color: var(--red); }
+.bet-status.wait { background: var(--bg-inset); color: var(--text-muted); margin-top: 4px; }
+
+/* Ligne d'argent */
+.bet-money {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    border-top: 1px solid var(--border-soft); padding-top: 10px;
+}
+.bet-money > div { display: flex; flex-direction: column; gap: 1px; }
+.bm-k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); }
+.bm-v { font-size: 13.5px; font-weight: 600; }
+
+/* Prochaines cibles */
+.targets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 0; }
+.opp-chip {
+    font-size: 12px; padding: 7px 11px; border-radius: 5px;
+    background: var(--bg-inset); border: 1px solid var(--border);
+    font-family: var(--font-mono);
+}
 
 .chip {
     display: inline-block; vertical-align: 1px;
@@ -478,7 +545,9 @@ select.form-control { cursor: pointer; }
     /* Tableaux larges : défilement horizontal, colonnes lisibles (pas écrasées) */
     .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     #table-positions { min-width: 640px; }
-    .weather-card table, .weather-bets table { min-width: 540px; }
+    .weather-card table { min-width: 540px; }
+    .bets-grid { grid-template-columns: 1fr; }
+    .section-h { flex-direction: column; gap: 2px; }
 
     /* Bannière météo : empilée */
     .crypto-banner { flex-direction: column; align-items: flex-start; gap: 12px; padding: 14px; }
