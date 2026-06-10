@@ -47,7 +47,9 @@ class WeatherFeed:
         self._ens_cache = {}    # (lat,lon,unit) -> ({date: [(val,poids)]}, ts)
         self._real_cache = {}   # (lat,lon,unit) -> ((max, date, offset), ts)
         self._nws_cache = {}    # station -> (json, ts)
-        self.last_error = None  # dernière erreur réseau (diagnostic)
+        self.last_error = None       # dernière erreur réseau (diagnostic)
+        self._cooldown_until = 0.0   # pause globale après un 429 Open-Meteo
+        self.ens_budget = 999        # fetchs d'ensemble restants ce tick (anti-burst)
 
     async def _get(self, url):
         loop = asyncio.get_running_loop()
@@ -57,13 +59,18 @@ class WeatherFeed:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read().decode())
 
-        # Pacing doux : Open-Meteo limite ~600 req/min par IP — sur un hôte
-        # mutualisé (Render), rester nettement en-dessous évite les 429.
-        await asyncio.sleep(0.15)
+        # Pacing doux + disjoncteur : les requêtes d'ensemble comptent LOURD
+        # dans le quota Open-Meteo ; après un 429 on coupe tout pendant un moment
+        # plutôt que de marteler (le 429 se prolongerait).
+        if time.time() < self._cooldown_until:
+            raise RuntimeError("open-meteo en cooldown apres 429")
+        await asyncio.sleep(0.25)
         try:
             return await loop.run_in_executor(None, _fetch)
         except Exception as e:
             self.last_error = f"{type(e).__name__}: {str(e)[:90]}"
+            if getattr(e, "code", None) == 429:
+                self._cooldown_until = time.time() + config.WEATHER_429_COOLDOWN
             raise
 
     # ------------------------------------------------------------
@@ -76,6 +83,11 @@ class WeatherFeed:
         cached = self._ens_cache.get(key)
         if cached and now - cached[1] < self.ens_ttl:
             return cached[0]
+        # Budget par tick : on étale le préchauffage des ~58 villes sur
+        # plusieurs ticks au lieu d'un burst qui déclenche le 429.
+        if self.ens_budget <= 0:
+            return cached[0] if cached else {}
+        self.ens_budget -= 1
         url = (
             f"{ENSEMBLE_URL}?latitude={lat}&longitude={lon}"
             f"&daily=temperature_2m_max&temperature_unit={unit}"

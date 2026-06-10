@@ -113,15 +113,78 @@ def weighted_median(pairs):
     return s[-1][0] if s else 0.0
 
 
-def bucket_probabilities(members, buckets, realized=None):
+def _phi(x):
+    """CDF de la normale centrée réduite."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _bucket_bounds(parsed):
+    """Bornes CONTINUES [a, b) du max officiel pour une tranche (règle floor) :
+    'eq 28' -> [28,29) ; 'range 88-89' -> [88,90) ; 'ge 33' -> [33,+inf) ;
+    'le 23' -> (-inf,24)."""
+    kind, v1, v2, _u = parsed
+    if kind == "eq":
+        return v1, v1 + 1
+    if kind == "range":
+        return v1, v2 + 1
+    if kind == "ge":
+        return v1, None
+    return None, v1 + 1   # le
+
+
+def bucket_probabilities(members, buckets, realized=None, bandwidth=0.0):
     """members: [float] ou [(valeur, poids)]. buckets: liste de (label, parsed).
-    Retourne {label: proba pondérée} ; somme ≈ 1 sur des buckets exhaustifs."""
+    Retourne {label: proba pondérée} ; somme ≈ 1 sur des buckets exhaustifs.
+
+    bandwidth > 0 : LISSAGE PAR NOYAU — chaque scénario devient une petite
+    gaussienne N(v, bandwidth). Corrige la granularité (1/n) et les queues
+    bruitées du comptage brut. Le conditionnement au max déjà réalisé est
+    appliqué par troncature propre de chaque noyau (pas de fuite de masse
+    sous le réalisé). bandwidth = 0 : comptage brut historique.
+    """
     pairs = _normalize(members)
     if not pairs:
         return {}
+
+    if bandwidth and bandwidth > 0:
+        total_w = sum(w for _, w in pairs)
+        bounds = [(lbl, _bucket_bounds(p) if p else None) for lbl, p in buckets]
+        out = {lbl: (0.0 if bb is not None else None) for lbl, bb in bounds}
+        r = realized
+        for v, w in pairs:
+            Fr = _phi((r - v) / bandwidth) if r is not None else 0.0
+            denom = 1.0 - Fr
+            if denom < 1e-9:
+                # scénario entièrement sous le réalisé -> masse au point r
+                for lbl, bb in bounds:
+                    if bb is None:
+                        continue
+                    a, b = bb
+                    lo = a if a is not None else float("-inf")
+                    hi = b if b is not None else float("inf")
+                    if lo <= r < hi:
+                        out[lbl] += w
+                        break
+                continue
+            for lbl, bb in bounds:
+                if bb is None:
+                    continue
+                a, b = bb
+                Fb = 1.0 if b is None else _phi((b - v) / bandwidth)
+                Fa = 0.0 if a is None else _phi((a - v) / bandwidth)
+                if r is not None:
+                    Fb = max(Fb, Fr)
+                    Fa = max(Fa, Fr)
+                if Fb > Fa:
+                    out[lbl] += w * (Fb - Fa) / denom
+        for lbl in out:
+            if out[lbl] is not None:
+                out[lbl] /= total_w
+        return out
+
+    # --- comptage brut (troncature floor) ---
     if realized is not None:
         pairs = [(max(v, realized), w) for v, w in pairs]
-    # Troncature (floor), conformément à la règle « tranche qui contient le max »
     ints = [(math.floor(v), w) for v, w in pairs]
     total = sum(w for _, w in ints)
     out = {}

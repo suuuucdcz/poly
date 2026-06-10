@@ -127,6 +127,7 @@ class WeatherEdgeStrategy(Strategy):
         positions = {p["token_id"]: p for p in db.get_positions()}
         signals = []
         skip = {"city": 0, "buckets": 0, "ensemble": 0, "date": 0}
+        self.feed.ens_budget = cfg.WEATHER_ENS_BUDGET_PER_TICK
 
         for ev in events:
             city, coords = resolve_city(ev["title"])
@@ -170,7 +171,8 @@ class WeatherEdgeStrategy(Strategy):
             is_today = realized_src is not None
 
             parsed = [(b["label"], parse_bucket(b["label"])) for b in buckets]
-            probs = bucket_probabilities(members, parsed, realized_used)
+            bw = cfg.WEATHER_KERNEL_BW_F if unit == "F" else cfg.WEATHER_KERNEL_BW_C
+            probs = bucket_probabilities(members, parsed, realized_used, bandwidth=bw)
             summ = ensemble_summary(
                 [(max(v, realized_used), w) for v, w in members] if realized_used is not None else members
             )
@@ -220,11 +222,18 @@ class WeatherEdgeStrategy(Strategy):
                     row["edge"] = round(edge, 3)
 
                     if held_shares:
-                        # SORTIE : le marché paie nettement plus que la valeur modèle
+                        # SORTIES : surpayé / sauvetage / verrouillage
                         book = await ctx.client.fetch_book(b["yes_token"])
                         bid, bid_size = _best(book, "bids")
-                        if (bid is not None and bid_size
-                                and bid - p_cal >= cfg.WEATHER_EXIT_EDGE):
+                        reason = None
+                        if bid is not None and bid_size:
+                            if bid - p_cal >= cfg.WEATHER_EXIT_EDGE:
+                                reason = "surpayé"
+                            elif p_cal < cfg.WEATHER_SALVAGE_P and bid >= cfg.WEATHER_SALVAGE_MIN_BID:
+                                reason = "sauvetage"
+                            elif p_cal >= cfg.WEATHER_LOCK_P and bid >= cfg.WEATHER_LOCK_BID:
+                                reason = "verrouillage"
+                        if reason:
                             qty = round(min(held_shares, bid_size), 1)
                             if qty >= 1.0:
                                 revenue = qty * bid
@@ -242,7 +251,7 @@ class WeatherEdgeStrategy(Strategy):
                                 if not remaining:
                                     row["held_avg"] = None
                                 ctx.log(
-                                    f"WEATHER EXIT {city} {b['label']} | bid {bid:.2f} >> modèle {p_cal:.2f} "
+                                    f"WEATHER EXIT [{reason}] {city} {b['label']} | bid {bid:.2f} vs modèle {p_cal:.2f} "
                                     f"| vendu {qty} | PnL {pnl:+.2f}$",
                                     "SUCCESS" if pnl >= 0 else "WARNING",
                                 )
@@ -262,6 +271,15 @@ class WeatherEdgeStrategy(Strategy):
                 if ask is None or not ask_size:
                     continue
                 if not (cfg.WEATHER_MIN_BUY_PRICE < ask < cfg.WEATHER_MAX_BUY_PRICE):
+                    continue
+                # Qualité de carnet : un bid doit exister, le spread doit être
+                # raisonnable, et il faut une vraie profondeur au meilleur ask.
+                # (Leçon anti-sélection : un carnet désert = un prix qui ne veut
+                # rien dire et une sortie impossible.)
+                bid, _bsz = _best(book, "bids")
+                if bid is None or (ask - bid) > cfg.WEATHER_MAX_SPREAD:
+                    continue
+                if ask * ask_size < cfg.WEATHER_MIN_BOOK_USDC:
                     continue
                 edge = p_cal - (ask + ctx.risk.taker_fee(ask))
                 if edge <= cfg.WEATHER_EDGE_THRESHOLD:
