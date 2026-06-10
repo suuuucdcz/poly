@@ -577,6 +577,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (tradesStr === recentTradesStr) return;
             recentTradesStr = tradesStr;
 
+            renderResults(data.trades || []);
+
             if (!data.trades || data.trades.length === 0) {
                 historyContainer.innerHTML = `<div class="text-center text-muted padded">Aucun trade historique enregistré.</div>`;
                 return;
@@ -613,6 +615,49 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (e) {
             console.error("Error fetching trades:", e);
         }
+    }
+
+    // ===================== PARIS TERMINÉS (définitif) =====================
+    function renderResults(trades) {
+        const body = document.getElementById("results-body");
+        const totals = document.getElementById("results-totals");
+        if (!body) return;
+
+        const closed = trades.filter(t => (t.action === "SELL" || t.action === "RESOLVE") && t.pnl !== null);
+        if (!closed.length) {
+            body.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Aucun pari terminé pour l'instant — les résolutions tombent ~1-2 h après minuit local de chaque ville.</td></tr>`;
+            if (totals) totals.innerText = "";
+            return;
+        }
+
+        const total = closed.reduce((s, t) => s + t.pnl, 0);
+        const wins = closed.filter(t => t.pnl > 0).length;
+        const sells = closed.filter(t => t.action === "SELL");
+        const res = closed.filter(t => t.action === "RESOLVE");
+        if (totals) {
+            const cls = total >= 0 ? "pnl-positive" : "pnl-negative";
+            totals.innerHTML = `${closed.length} terminés (${res.length} résolus · ${sells.length} vendus) · ${wins} gagnants · TOTAL <strong class="${cls}">${total >= 0 ? "+" : ""}${total.toFixed(2)} $</strong>`;
+        }
+
+        let html = "";
+        closed.slice(0, 80).forEach(t => {
+            const date = new Date(t.timestamp + "Z").toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+            const pd = parseCityDate(t.question);
+            const label = (t.question.split("?")[1] || t.outcome || "").trim();
+            const isRes = t.action === "RESOLVE";
+            const typeChip = isRes
+                ? `<span class="history-action resolve">RÉSOLU ${t.price >= 0.5 ? "✓" : "✗"}</span>`
+                : `<span class="history-action sell">VENDU</span>`;
+            const cls = t.pnl >= 0 ? "pnl-positive" : "pnl-negative";
+            html += `<tr>
+                <td class="mono">${date}</td>
+                <td>${typeChip}</td>
+                <td><strong>${escapeHTML(cap(pd.city))}</strong> · ${escapeHTML(label)} <span class="text-muted">(${escapeHTML(pd.date)})</span></td>
+                <td class="num mono">${t.shares.toFixed(1)} @ ${t.price.toFixed(2)}</td>
+                <td class="num mono ${cls}"><strong>${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} $</strong></td>
+            </tr>`;
+        });
+        body.innerHTML = html;
     }
 
     // ===================== COURBE D'EQUITY (Lightweight Charts) =====================

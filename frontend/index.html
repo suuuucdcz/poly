@@ -20,7 +20,7 @@
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <link rel="icon" type="image/png" href="/static/icon-192.png">
     <!-- ?v= : bump à chaque déploiement (avec CACHE de sw.js) pour casser le cache navigateur -->
-    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
     <div class="app">
@@ -168,8 +168,22 @@
 
         <!-- ===================== TAB: HISTORY ===================== -->
         <section class="tab-panel" id="tab-history">
+            <div class="panel results-panel">
+                <div class="panel-head">
+                    <h2>💰 Paris terminés (définitif)</h2>
+                    <span class="mono section-sub" id="results-totals"></span>
+                </div>
+                <div class="table-wrapper">
+                    <table class="data-table" id="table-results">
+                        <thead><tr><th>Quand</th><th>Type</th><th>Pari</th><th class="num">Parts @ prix</th><th class="num">PnL définitif</th></tr></thead>
+                        <tbody id="results-body">
+                            <tr><td colspan="5" class="text-center text-muted">Aucun pari terminé pour l'instant.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
             <div class="panel">
-                <div class="panel-head"><h2>Historique des transactions</h2></div>
+                <div class="panel-head"><h2>Journal complet (achats inclus)</h2></div>
                 <div class="history-list" id="history-container">
                     <div class="text-center text-muted padded">Aucun trade historique enregistré.</div>
                 </div>
@@ -187,6 +201,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=6"></script>
+    <script src="/static/app.js?v=7"></script>
 </body>
 </html>

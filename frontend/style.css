@@ -342,6 +342,7 @@ select.form-control { cursor: pointer; }
 /* --- Weather Edge --- */
 .weather-list { display: flex; flex-direction: column; gap: 14px; }
 .weather-card { margin-bottom: 0; border-left: 3px solid var(--amber); }
+.results-panel { border-left: 3px solid var(--green); }
 .weather-meta { font-size: 11px; }
 
 /* En-têtes de section (Mes paris / Cibles / Analyse pro) */
