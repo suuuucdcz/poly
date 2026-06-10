@@ -53,6 +53,26 @@ CITIES = {
 }
 
 
+# Ville -> identifiant de la station NWS (api.weather.gov) = LE capteur officiel
+# des marchés US. Permet de lire le max réalisé EXACT (et non la grille météo).
+NWS_STATIONS = {
+    "atlanta": "KATL",
+    "austin": "KAUS",
+    "chicago": "KORD",
+    "dallas": "KDAL",        # Love Field
+    "denver": "KBKF",        # Buckley Space Force Base
+    "houston": "KHOU",       # Hobby
+    "los angeles": "KLAX",
+    "miami": "KMIA",
+    "san francisco": "KSFO",
+    "seattle": "KSEA",
+    "new york": "KNYC",      # Central Park
+    "nyc": "KNYC",
+    "philadelphia": "KPHL",
+    "phoenix": "KPHX",
+}
+
+
 def resolve_city(title_or_city):
     """Renvoie (nom, (lat, lon)) si la ville est connue, sinon (None, None)."""
     s = (title_or_city or "").lower()

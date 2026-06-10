@@ -1,16 +1,15 @@
-"""Feed météo via Open-Meteo (gratuit, sans clé).
+"""Feed météo : Open-Meteo (prévisions d'ensemble) + NWS (capteur officiel US).
 
-Deux flux :
-  - `ensemble_by_date(lat, lon, unit)` : pour CHAQUE jour de prévision (J0..J+2,
-    dates LOCALES de la station), la liste de tous les membres d'ensemble
-    (GFS + ICON + ECMWF, ≈120 scénarios) du `temperature_2m_max` → une vraie
-    distribution de probabilité du maximum, **par date cible**.
-    Indispensable : un marché « on June 10 » doit utiliser la distribution du
-    10 juin à la station, pas celle d'aujourd'hui.
-  - `realized_today(lat, lon, unit)` : le maximum DÉJÀ observé aujourd'hui
-    (heure locale de la station) + la date locale courante de la station →
-    permet de conditionner la distribution uniquement si la date cible est
-    bien « aujourd'hui » là-bas.
+Trois flux :
+  - `ensemble_by_date(lat, lon, unit)` : pour chaque jour J0..J+2 (dates LOCALES
+    de la station), la liste des membres d'ensemble PONDÉRÉS [(valeur, poids)]
+    de `temperature_2m_max` (GFS + ICON + ECMWF ; ECMWF pèse plus, il est plus
+    précis). Un marché « on June 10 » utilise la distribution du 10 juin local.
+  - `realized_today(lat, lon, unit)` : (max grille observé aujourd'hui, date
+    locale station, décalage UTC en s). Sert de repli hors stations NWS.
+  - `nws_max_today(station_id, local_date, utc_offset, unit)` : le max du jour
+    lu sur LE capteur officiel du marché (api.weather.gov) — la donnée exacte
+    sur laquelle le marché se résout (villes US).
 """
 
 import asyncio
@@ -22,17 +21,32 @@ from backend import config
 
 ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+NWS_URL = "https://api.weather.gov/stations/{sid}/observations?limit=160"
+
+
+def _model_weight(member_key, weights):
+    k = member_key.lower()
+    if "ecmwf" in k:
+        return weights.get("ecmwf", 1.0)
+    if "gfs" in k or "gefs" in k:
+        return weights.get("gfs", 1.0)
+    if "icon" in k:
+        return weights.get("icon", 1.0)
+    return 1.0
 
 
 class WeatherFeed:
     def __init__(self, cfg=config):
         self.models = cfg.WEATHER_MODELS
+        self.weights = cfg.WEATHER_MODEL_WEIGHTS
         self.headers = cfg.HTTP_HEADERS
         self.timeout = cfg.HTTP_TIMEOUT + 17   # l'API ensemble peut être lente
         self.ens_ttl = cfg.WEATHER_ENS_CACHE_TTL
         self.real_ttl = cfg.WEATHER_REALIZED_CACHE_TTL
-        self._ens_cache = {}    # (lat,lon,unit) -> ({date: [members]}, ts)
-        self._real_cache = {}   # (lat,lon,unit) -> ((max, date_locale), ts)
+        self.nws_ttl = cfg.WEATHER_NWS_CACHE_TTL
+        self._ens_cache = {}    # (lat,lon,unit) -> ({date: [(val,poids)]}, ts)
+        self._real_cache = {}   # (lat,lon,unit) -> ((max, date, offset), ts)
+        self._nws_cache = {}    # station -> (json, ts)
 
     async def _get(self, url):
         loop = asyncio.get_running_loop()
@@ -45,10 +59,10 @@ class WeatherFeed:
         return await loop.run_in_executor(None, _fetch)
 
     # ------------------------------------------------------------
-    # DISTRIBUTIONS DU MAX, PAR DATE LOCALE DE LA STATION
+    # DISTRIBUTIONS PONDÉRÉES DU MAX, PAR DATE LOCALE
     # ------------------------------------------------------------
     async def ensemble_by_date(self, lat, lon, unit="celsius"):
-        """{ 'YYYY-MM-DD': [max simulés...] } pour J0..J+2 (dates station)."""
+        """{ 'YYYY-MM-DD': [(max simulé, poids modèle), ...] } pour J0..J+2."""
         key = (round(lat, 3), round(lon, 3), unit)
         now = time.time()
         cached = self._ens_cache.get(key)
@@ -67,10 +81,10 @@ class WeatherFeed:
             for k, arr in daily.items():
                 if not k.startswith("temperature_2m_max") or not isinstance(arr, list):
                     continue
+                w = _model_weight(k, self.weights)
                 for i, dt in enumerate(dates):
                     if i < len(arr) and arr[i] is not None:
-                        by_date[dt].append(float(arr[i]))
-            # ne garder que les dates avec assez de membres pour une vraie distribution
+                        by_date[dt].append((float(arr[i]), w))
             by_date = {dt: v for dt, v in by_date.items() if len(v) >= 20}
             if by_date:
                 self._ens_cache[key] = (by_date, now)
@@ -80,10 +94,10 @@ class WeatherFeed:
         return cached[0] if cached else {}
 
     # ------------------------------------------------------------
-    # MAX RÉALISÉ AUJOURD'HUI (heure + date locales de la station)
+    # MAX RÉALISÉ (grille Open-Meteo, repli hors stations NWS)
     # ------------------------------------------------------------
     async def realized_today(self, lat, lon, unit="celsius"):
-        """(max observé aujourd'hui, 'YYYY-MM-DD' locale station) ou (None, None)."""
+        """(max observé aujourd'hui, 'YYYY-MM-DD' locale, décalage UTC en s)."""
         key = (round(lat, 3), round(lon, 3), unit)
         now = time.time()
         cached = self._real_cache.get(key)
@@ -97,22 +111,62 @@ class WeatherFeed:
         try:
             d = await self._get(url)
             cur = d.get("current", {})
-            now_t = cur.get("time")                  # 'YYYY-MM-DDTHH:MM' locale station
+            now_t = cur.get("time")
             local_date = now_t.split("T")[0] if now_t else None
+            offset = int(d.get("utc_offset_seconds") or 0)
             h = d.get("hourly", {})
-            times = h.get("time", [])
-            temps = h.get("temperature_2m", [])
             realized = None
-            for t, v in zip(times, temps):
+            for t, v in zip(h.get("time", []), h.get("temperature_2m", [])):
                 if v is None:
                     continue
-                if now_t and t <= now_t:             # seulement les heures déjà écoulées
+                if now_t and t <= now_t:
                     realized = v if realized is None else max(realized, v)
             cv = cur.get("temperature_2m")
             if cv is not None:
                 realized = cv if realized is None else max(realized, cv)
-            result = (realized, local_date)
+            result = (realized, local_date, offset)
             self._real_cache[key] = (result, now)
             return result
         except Exception:
-            return cached[0] if cached else (None, None)
+            return cached[0] if cached else (None, None, 0)
+
+    # ------------------------------------------------------------
+    # MAX RÉALISÉ — CAPTEUR OFFICIEL NWS (villes US)
+    # ------------------------------------------------------------
+    async def nws_max_today(self, station_id, local_date, utc_offset, unit="celsius"):
+        """Max du jour (date locale station) lu sur la station NWS officielle,
+        converti dans l'unité du marché. None si indisponible."""
+        if not station_id or not local_date:
+            return None
+        now = time.time()
+        cached = self._nws_cache.get(station_id)
+        if cached and now - cached[1] < self.nws_ttl:
+            data = cached[0]
+        else:
+            try:
+                data = await self._get(NWS_URL.format(sid=station_id))
+                self._nws_cache[station_id] = (data, now)
+            except Exception:
+                return None
+        best = None
+        for f in data.get("features", []):
+            p = f.get("properties", {})
+            v = (p.get("temperature") or {}).get("value")
+            ts = p.get("timestamp")
+            if v is None or not ts:
+                continue
+            try:
+                # timestamp UTC -> date locale station via le décalage Open-Meteo
+                import datetime as _dt
+                t = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                local = t + _dt.timedelta(seconds=utc_offset)
+                if local.strftime("%Y-%m-%d") != local_date:
+                    continue
+            except Exception:
+                continue
+            best = v if best is None else max(best, v)
+        if best is None:
+            return None
+        if unit == "fahrenheit":
+            return best * 9.0 / 5.0 + 32.0
+        return best

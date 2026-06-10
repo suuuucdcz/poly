@@ -81,15 +81,49 @@ def parse_bucket(label):
     return ("eq", v, None, unit)
 
 
+def _normalize(members):
+    """Accepte [float, ...] ou [(valeur, poids), ...] -> [(valeur, poids), ...]."""
+    out = []
+    for m in members:
+        if isinstance(m, (tuple, list)):
+            out.append((float(m[0]), float(m[1])))
+        else:
+            out.append((float(m), 1.0))
+    return out
+
+
+def inflate_members(members, factor):
+    """Élargit la dispersion autour de la médiane (les ensembles sont souvent
+    trop confiants). factor=1.0 -> inchangé."""
+    pairs = _normalize(members)
+    if not pairs or factor == 1.0:
+        return pairs
+    med = weighted_median(pairs)
+    return [(med + (v - med) * factor, w) for v, w in pairs]
+
+
+def weighted_median(pairs):
+    s = sorted(pairs, key=lambda p: p[0])
+    total = sum(w for _, w in s)
+    acc = 0.0
+    for v, w in s:
+        acc += w
+        if acc >= total / 2:
+            return v
+    return s[-1][0] if s else 0.0
+
+
 def bucket_probabilities(members, buckets, realized=None):
-    """members: liste de float (max simulés). buckets: liste de (label, parsed).
-    Retourne {label: proba} ; somme ≈ 1 sur des buckets exhaustifs."""
-    if not members:
+    """members: [float] ou [(valeur, poids)]. buckets: liste de (label, parsed).
+    Retourne {label: proba pondérée} ; somme ≈ 1 sur des buckets exhaustifs."""
+    pairs = _normalize(members)
+    if not pairs:
         return {}
-    eff = [max(m, realized) for m in members] if realized is not None else list(members)
+    if realized is not None:
+        pairs = [(max(v, realized), w) for v, w in pairs]
     # Troncature (floor), conformément à la règle « tranche qui contient le max »
-    ints = [math.floor(x) for x in eff]
-    n = len(ints)
+    ints = [(math.floor(v), w) for v, w in pairs]
+    total = sum(w for _, w in ints)
     out = {}
     for label, parsed in buckets:
         if not parsed:
@@ -97,24 +131,25 @@ def bucket_probabilities(members, buckets, realized=None):
             continue
         kind, v1, v2, _unit = parsed
         if kind == "eq":
-            c = sum(1 for i in ints if i == v1)
+            c = sum(w for i, w in ints if i == v1)
         elif kind == "ge":
-            c = sum(1 for i in ints if i >= v1)
+            c = sum(w for i, w in ints if i >= v1)
         elif kind == "le":
-            c = sum(1 for i in ints if i <= v1)
+            c = sum(w for i, w in ints if i <= v1)
         else:  # range
-            c = sum(1 for i in ints if v1 <= i <= v2)
-        out[label] = c / n
+            c = sum(w for i, w in ints if v1 <= i <= v2)
+        out[label] = c / total
     return out
 
 
 def ensemble_summary(members):
-    """(min, médiane, max, écart-type) pour l'affichage."""
-    if not members:
+    """(min, médiane, max, écart-type) pour l'affichage (pondéré)."""
+    pairs = _normalize(members)
+    if not pairs:
         return None
-    s = sorted(members)
-    n = len(s)
-    med = s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
-    mean = sum(s) / n
-    var = sum((x - mean) ** 2 for x in s) / n
-    return {"min": s[0], "median": med, "max": s[-1], "std": var ** 0.5}
+    vals = [v for v, _ in pairs]
+    med = weighted_median(pairs)
+    total = sum(w for _, w in pairs)
+    mean = sum(v * w for v, w in pairs) / total
+    var = sum(w * (v - mean) ** 2 for v, w in pairs) / total
+    return {"min": min(vals), "median": med, "max": max(vals), "std": var ** 0.5}

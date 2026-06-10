@@ -1,34 +1,37 @@
 """Stratégie Weather Edge (marchés « Highest temperature » de Polymarket).
 
-Principe : la température max du jour d'une station est **prévisible** via les
-modèles publics. On calcule une distribution de probabilité (ensemble Open-Meteo
-GFS+ICON+ECMWF ≈120 scénarios) **pour la date exacte du marché**, on en déduit
-la proba de chaque tranche, on la compare au prix Polymarket, et on **achète les
-tranches sous-évaluées** (jamais les favoris chers — la leçon de la crypto).
+La température max du jour d'une station est prévisible via les modèles publics.
+On calcule une distribution de probabilité (ensemble Open-Meteo GFS+ICON+ECMWF,
+pondérée — ECMWF pèse plus — et légèrement élargie car les ensembles sont trop
+confiants) **pour la date exacte du marché**, on en déduit la proba de chaque
+tranche (troncature officielle), on compare au prix et on achète les tranches
+sous-évaluées (jamais les favoris chers).
 
 Garde-fous « béton » :
-  - la distribution utilisée est celle de la **date cible du marché** (parsée du
-    titre) à la **date locale de la station** — jamais celle d'un autre jour ;
-  - le conditionnement sur le max déjà observé n'est appliqué **que si** le
-    marché porte sur « aujourd'hui » à la station ;
-  - l'achat papier se fait au **vrai meilleur ask du carnet** (pas au dernier
-    prix affiché), plafonné par la taille disponible → fills réalistes ;
-  - plafond **cumulatif** de tranches détenues par marché (pas par tick) ;
-  - sizing Kelly fractionnaire + plafonds de risque + calibration sur les
-    résultats réels (kind='weather').
+  - distribution de la DATE CIBLE du marché, en date locale de la station ;
+  - max réalisé : lu sur le **capteur officiel NWS** pour les villes US (la
+    donnée même qui résout le marché) ; sinon grille Open-Meteo MOINS une marge
+    de sécurité (la grille peut surestimer le capteur → éviter d'éliminer une
+    tranche à tort) ; appliqué seulement si cible = aujourd'hui là-bas ;
+  - achat au vrai meilleur ask du carnet, taille plafonnée ;
+  - plafond cumulatif de tranches par marché ; Kelly fractionnaire ; calibration ;
+  - SORTIE ANTICIPÉE : si le marché paie nettement plus que la valeur modèle
+    (prévision retournée ou marché euphorique), on vend au bid — prise de
+    profit / coupe de perte. Ces sorties sont EXCLUES de la calibration.
 
-Règlement par le tick principal (marchés résolus le lendemain). 100 % paper.
+Règlement final par le tick principal. 100 % paper.
 """
 
 import time
 
 from backend import config, db
 from backend.calibration import Calibrator
-from backend.cities import resolve_city
+from backend.cities import NWS_STATIONS, resolve_city
 from backend.weather_feed import WeatherFeed
 from backend.weather_model import (
     bucket_probabilities,
     ensemble_summary,
+    inflate_members,
     match_date,
     parse_bucket,
     parse_target_date,
@@ -36,15 +39,18 @@ from backend.weather_model import (
 from backend.strategies.base import Strategy
 
 
-def _best_ask(book):
-    """(meilleur prix ask, taille dispo) ou (None, None)."""
+def _best(book, side):
+    """(meilleur prix, taille) du côté demandé, ou (None, None)."""
     if not book:
         return None, None
-    asks = book.get("asks", [])
-    if not asks:
+    rows = book.get(side, [])
+    if not rows:
         return None, None
-    best = min(asks, key=lambda x: float(x["price"]))
-    return float(best["price"]), float(best["size"])
+    if side == "asks":
+        b = min(rows, key=lambda x: float(x["price"]))
+    else:
+        b = max(rows, key=lambda x: float(x["price"]))
+    return float(b["price"]), float(b["size"])
 
 
 class WeatherEdgeStrategy(Strategy):
@@ -62,11 +68,34 @@ class WeatherEdgeStrategy(Strategy):
             min_losses=cfg.CALIBRATION_MIN_LOSSES,
         )
 
+    # ------------------------------------------------------------
+    # Max réalisé : capteur officiel d'abord, grille avec marge sinon
+    # ------------------------------------------------------------
+    async def _realized_for(self, city, lat, lon, om_unit, target_date):
+        """(valeur à utiliser pour conditionner, valeur à afficher, source).
+        (None, None, None) si la cible n'est pas « aujourd'hui » à la station."""
+        grid_val, local_date, offset = await self.feed.realized_today(lat, lon, om_unit)
+        if local_date != target_date:
+            return None, None, None
+        station = NWS_STATIONS.get(city)
+        if station:
+            nws = await self.feed.nws_max_today(station, local_date, offset, om_unit)
+            if nws is not None:
+                return nws, nws, "station"     # capteur officiel : pas de marge
+        if grid_val is None:
+            return None, None, None
+        margin = self.cfg.WEATHER_REALIZED_MARGIN_C
+        if om_unit == "fahrenheit":
+            margin *= 1.8
+        return grid_val - margin, grid_val, "grille"
+
+    # ------------------------------------------------------------
+    # Boucle
+    # ------------------------------------------------------------
     async def run(self, ctx, markets, balance, portfolio_value):
         cfg = self.cfg
         now = time.time()
 
-        # Calibration (paris météo réglés uniquement)
         if now - self._last_refit > cfg.CALIBRATION_REFIT_SEC:
             self._last_refit = now
             try:
@@ -99,31 +128,28 @@ class WeatherEdgeStrategy(Strategy):
             unit = "F" if any("°F" in (b["label"] or "") for b in buckets) else "C"
             om_unit = "fahrenheit" if unit == "F" else "celsius"
 
-            # --- Date cible du marché vs dates de prévision (locales station) ---
+            # --- Distribution de la date cible (locale station) ---
             target = parse_target_date(ev["title"])
             by_date = await self.feed.ensemble_by_date(lat, lon, om_unit)
             if not by_date:
                 continue
-            dates = sorted(by_date.keys())
-            target_date = match_date(dates, target)
+            target_date = match_date(sorted(by_date.keys()), target)
             if not target_date:
-                # Marché d'un jour déjà passé à la station (en résolution) ou trop
-                # lointain → pas de distribution fiable, on n'y touche pas.
-                continue
-            members = by_date[target_date]
+                continue   # jour passé à la station (en résolution) ou trop loin
+            members = inflate_members(by_date[target_date], cfg.WEATHER_SPREAD_INFLATE)
 
-            # --- Conditionnement intraday UNIQUEMENT si la cible = aujourd'hui là-bas ---
-            realized, local_date = await self.feed.realized_today(lat, lon, om_unit)
-            is_today = (local_date == target_date)
-            realized_used = realized if (is_today and realized is not None) else None
+            # --- Réalisé : capteur officiel (NWS) > grille - marge ---
+            realized_used, realized_disp, realized_src = await self._realized_for(
+                city, lat, lon, om_unit, target_date
+            )
+            is_today = realized_src is not None
 
             parsed = [(b["label"], parse_bucket(b["label"])) for b in buckets]
             probs = bucket_probabilities(members, parsed, realized_used)
             summ = ensemble_summary(
-                [max(m, realized_used) for m in members] if realized_used is not None else members
+                [(max(v, realized_used), w) for v, w in members] if realized_used is not None else members
             )
 
-            # Tranches déjà détenues sur ce marché (plafond CUMULATIF)
             held_count = sum(
                 1 for b in buckets
                 if b["yes_token"] in positions and positions[b["yes_token"]]["shares"] > 0
@@ -139,13 +165,14 @@ class WeatherEdgeStrategy(Strategy):
                 "median": round(summ["median"], 1) if summ else None,
                 "std": round(summ["std"], 2) if summ else None,
                 "spread": [round(summ["min"], 1), round(summ["max"], 1)] if summ else None,
-                "realized": round(realized, 1) if (is_today and realized is not None) else None,
+                "realized": round(realized_disp, 1) if realized_disp is not None else None,
+                "realized_src": realized_src,
                 "n": len(members),
                 "buckets": [],
                 "action": None,
             }
 
-            # --- Construire la vue par tranche + candidats d'achat ---
+            # --- Vue par tranche + candidats d'achat + SORTIES anticipées ---
             candidates = []
             for b in buckets:
                 p = probs.get(b["label"])
@@ -165,9 +192,36 @@ class WeatherEdgeStrategy(Strategy):
                     edge = p_cal - (b["yes_price"] + ctx.risk.taker_fee(b["yes_price"]))
                     row["p_cal"] = round(p_cal, 3)
                     row["edge"] = round(edge, 3)
-                    if (cfg.WEATHER_MIN_BUY_PRICE < b["yes_price"] < cfg.WEATHER_MAX_BUY_PRICE
-                            and edge > cfg.WEATHER_EDGE_THRESHOLD
-                            and not held_shares and slots_left > 0):
+
+                    if held_shares:
+                        # SORTIE : le marché paie nettement plus que la valeur modèle
+                        book = await ctx.client.fetch_book(b["yes_token"])
+                        bid, bid_size = _best(book, "bids")
+                        if (bid is not None and bid_size
+                                and bid - p_cal >= cfg.WEATHER_EXIT_EDGE):
+                            qty = round(min(held_shares, bid_size), 1)
+                            if qty >= 1.0:
+                                revenue = qty * bid
+                                pnl = revenue - qty * pos["avg_price"]
+                                balance += revenue
+                                db.update_balance(balance)
+                                remaining = held_shares - qty
+                                db.save_position(b["yes_token"], b["market_id"], pos["question"],
+                                                 pos["outcome"], remaining, pos["avg_price"], bid)
+                                db.add_trade(b["market_id"], pos["question"], b["yes_token"],
+                                             "SELL", pos["outcome"], qty, bid, pnl)
+                                if remaining < 1.0:
+                                    db.settle_bet(b["yes_token"], None, pnl)  # exclu de la calibration
+                                row["held_shares"] = round(remaining, 1)
+                                if not remaining:
+                                    row["held_avg"] = None
+                                ctx.log(
+                                    f"WEATHER EXIT {city} {b['label']} | bid {bid:.2f} >> modèle {p_cal:.2f} "
+                                    f"| vendu {qty} | PnL {pnl:+.2f}$",
+                                    "SUCCESS" if pnl >= 0 else "WARNING",
+                                )
+                    elif (cfg.WEATHER_MIN_BUY_PRICE < b["yes_price"] < cfg.WEATHER_MAX_BUY_PRICE
+                            and edge > cfg.WEATHER_EDGE_THRESHOLD and slots_left > 0):
                         candidates.append((b, p, p_cal, edge))
                 sig["buckets"].append(row)
 
@@ -178,16 +232,14 @@ class WeatherEdgeStrategy(Strategy):
                 if bought >= slots_left:
                     break
                 book = await ctx.client.fetch_book(b["yes_token"])
-                ask, ask_size = _best_ask(book)
-                if ask is None or ask_size is None or ask_size <= 0:
-                    continue   # illiquide → on ne se raconte pas d'histoires
+                ask, ask_size = _best(book, "asks")
+                if ask is None or not ask_size:
+                    continue
                 if not (cfg.WEATHER_MIN_BUY_PRICE < ask < cfg.WEATHER_MAX_BUY_PRICE):
                     continue
-                # Edge recalculé au prix d'exécution réel
                 edge = p_cal - (ask + ctx.risk.taker_fee(ask))
                 if edge <= cfg.WEATHER_EDGE_THRESHOLD:
                     continue
-                # Kelly binaire au prix réel
                 f = (p_cal - ask) / (1.0 - ask) if ask < 1.0 else 0.0
                 if f <= 0:
                     continue
@@ -210,7 +262,6 @@ class WeatherEdgeStrategy(Strategy):
                            0.0, 0, 0.0, (realized_used or 0.0), shares, cost, kind="weather")
                 bought += 1
                 sig["action"] = f"BUY {b['label']}"
-                # refléter l'achat dans la ligne UI
                 for row in sig["buckets"]:
                     if row["label"] == b["label"]:
                         row["held_shares"] = shares
@@ -218,15 +269,13 @@ class WeatherEdgeStrategy(Strategy):
                 ctx.log(
                     f"WEATHER {city} {target_date} | {b['label']} | P={p:.2f}->{p_cal:.2f} "
                     f"ask={ask:.2f} edge={edge:+.2f} | {shares} parts {cost:.2f}$ "
-                    f"(méd {sig['median']}{unit}, réalisé {sig['realized']})",
+                    f"(méd {sig['median']}{unit}, réalisé {sig['realized']} {realized_src or ''})",
                     "SUCCESS",
                 )
 
-            # tri d'affichage : plus forte proba d'abord
             sig["buckets"].sort(key=lambda x: -(x["p"] or 0))
             signals.append(sig)
 
-        # tri : marchés d'aujourd'hui d'abord, puis par date
         signals.sort(key=lambda s: (not s["is_today"], s["date"]))
         if ctx.ui_state is not None:
             ctx.ui_state["weather"] = signals[: cfg.WEATHER_SIGNALS_MAX]

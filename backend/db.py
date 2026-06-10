@@ -304,7 +304,11 @@ def log_bet(token_id, asset, window, side, is_up, entry_price, model_p, edge,
 
 
 def settle_bet(token_id, won, pnl):
-    """Renseigne le résultat du dernier pari non réglé sur ce token."""
+    """Renseigne le résultat du dernier pari non réglé sur ce token.
+
+    `won=None` = sortie anticipée (résultat final inconnu) : le PnL est
+    enregistré mais le pari est EXCLU de la calibration (won reste NULL).
+    """
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -314,9 +318,10 @@ def settle_bet(token_id, won, pnl):
         row = cursor.fetchone()
         if not row:
             return
+        won_val = None if won is None else (1 if won else 0)
         cursor.execute(
             "UPDATE bet_log SET settled = 1, won = ?, pnl = ? WHERE id = ?",
-            (1 if won else 0, pnl, row["id"]),
+            (won_val, pnl, row["id"]),
         )
         conn.commit()
 

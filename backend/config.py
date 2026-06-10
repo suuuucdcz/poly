@@ -58,6 +58,22 @@ WEATHER_EDGE_THRESHOLD = 0.05       # edge mini (P calibrée − prix − frais)
 WEATHER_MIN_BUY_PRICE = 0.02        # garde-fous de prix
 WEATHER_MAX_BUY_PRICE = 0.60        # NE PAS acheter de favori cher (leçon crypto)
 
+# Pondération des familles de modèles dans l'ensemble (ECMWF = le plus précis)
+WEATHER_MODEL_WEIGHTS = {"ecmwf": 1.4, "gfs": 1.0, "icon": 1.0}
+# Les ensembles sont souvent trop confiants -> on élargit la dispersion autour
+# de la médiane (1.0 = brut)
+WEATHER_SPREAD_INFLATE = 1.12
+
+# Max réalisé : la grille Open-Meteo peut surestimer le capteur officiel ->
+# marge de sécurité soustraite avant conditionnement (0 pour les stations NWS,
+# qui SONT le capteur officiel).
+WEATHER_REALIZED_MARGIN_C = 0.4     # en °C (convertie en °F au besoin)
+WEATHER_NWS_CACHE_TTL = 300
+
+# Sortie anticipée : vendre si le marché paie nettement plus que la valeur
+# modèle (prise de profit / coupe de perte quand la prévision se retourne).
+WEATHER_EXIT_EDGE = 0.12
+
 WEATHER_KELLY_FRACTION = 0.30       # sizing par edge (prudent)
 WEATHER_STAKE_MIN_USDC = 2.0
 WEATHER_STAKE_MAX_USDC = 25.0

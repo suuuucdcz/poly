@@ -350,8 +350,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const u = "°" + (ev.unit || "C");
             const spread = ev.spread ? `${ev.spread[0]}${u} → ${ev.spread[1]}${u}` : "";
             const todayChip = ev.is_today ? `<span class="chip chip-today">AUJOURD'HUI</span>` : `<span class="chip">${escapeHTML(ev.date || "")}</span>`;
+            const srcTag = ev.realized_src === "station" ? " 📡 station officielle" : (ev.realized_src === "grille" ? " (grille)" : "");
             const realizedTxt = (ev.realized != null)
-                ? `réalisé <strong class="mono">${ev.realized}${u}</strong>`
+                ? `réalisé <strong class="mono">${ev.realized}${u}</strong>${srcTag}`
                 : `<span class="text-muted">pas encore de relevé du jour</span>`;
 
             let rows = "";
