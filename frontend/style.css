@@ -422,6 +422,8 @@ select.form-control { cursor: pointer; }
     border: 1px solid var(--border);
 }
 .chip-today { background: rgba(245,165,36,0.14); color: var(--amber); border-color: rgba(245,165,36,0.4); }
+.chip-v2  { background: rgba(0,230,168,0.12); color: var(--green); border-color: rgba(0,230,168,0.38); }
+.chip-old { background: rgba(255,77,109,0.10); color: var(--red); border-color: rgba(255,77,109,0.32); }
 
 .badge-bet {
     display: inline-block;

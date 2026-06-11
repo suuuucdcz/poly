@@ -183,9 +183,20 @@ def update_balance(new_balance):
         conn.commit()
 
 def get_positions():
+    """Positions ouvertes + date du PREMIER achat (permet de distinguer les paris
+    de l'ancien modèle de ceux du modèle corrigé dans le dashboard)."""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT token_id, market_id, question, outcome, shares, avg_price, current_price, end_date, payout_multiplier FROM positions")
+        cursor.execute("""
+            SELECT p.token_id, p.market_id, p.question, p.outcome, p.shares,
+                   p.avg_price, p.current_price, p.end_date, p.payout_multiplier,
+                   b.opened_at
+            FROM positions p
+            LEFT JOIN (
+                SELECT token_id, MIN(timestamp) AS opened_at
+                FROM trades WHERE action = 'BUY' GROUP BY token_id
+            ) b ON b.token_id = p.token_id
+        """)
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 

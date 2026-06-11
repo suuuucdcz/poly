@@ -405,6 +405,17 @@ document.addEventListener("DOMContentLoaded", () => {
         weatherContainer.innerHTML = html;
     }
 
+    // Paris placés avant le déploiement du modèle corrigé (biais par ville +
+    // lissage noyau + filtres carnet + blend NWS) = « ancien modèle ».
+    const MODEL_V2_CUTOFF = Date.parse("2026-06-10T16:00:00Z");
+    function modelChip(openedAt) {
+        if (!openedAt) return "";
+        const t = Date.parse(openedAt + (openedAt.endsWith("Z") ? "" : "Z"));
+        return t >= MODEL_V2_CUTOFF
+            ? `<span class="chip chip-v2">MODÈLE V2</span>`
+            : `<span class="chip chip-old">ANCIEN MODÈLE</span>`;
+    }
+
     // === SECTION VISUELLE 1 : mes paris ===
     function renderMyBets() {
         if (!lastPositions.length) {
@@ -433,7 +444,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="bet-head">
                     <div>
                         <div class="bet-city">${escapeHTML(cap(pd.city))}</div>
-                        <div class="bet-date mono">${escapeHTML(pd.date || "")}${ev && ev.is_today ? ` · <span class="chip chip-today">AUJOURD'HUI</span>` : ""}</div>
+                        <div class="bet-date mono">${escapeHTML(pd.date || "")}${ev && ev.is_today ? ` · <span class="chip chip-today">AUJOURD'HUI</span>` : ""}${modelChip(pos.opened_at)}</div>
                     </div>
                     <span class="bet-label-chip">${escapeHTML(label || pos.outcome)}</span>
                 </div>
