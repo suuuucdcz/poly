@@ -97,10 +97,9 @@ def get_portfolio():
         total_return = total_valuation - initial_budget
         roi = (total_return / initial_budget) * 100 if initial_budget > 0 else 0.0
 
-        trades = db.get_trades()
-        settled_trades = [t for t in trades if t["pnl"] is not None]
-        winning_trades = [t for t in settled_trades if t["pnl"] > 0]
-        win_rate = (len(winning_trades) / len(settled_trades)) * 100 if settled_trades else None
+        # Agrégats vie entière (la fenêtre des 100 derniers trades mentirait)
+        tot = db.get_trade_totals()
+        win_rate = (tot["wins"] / tot["closed"]) * 100 if tot["closed"] else None
 
         return {
             "balance": portfolio["balance"],
@@ -112,8 +111,8 @@ def get_portfolio():
             "locked_profit": locked_profit,
             "win_rate": win_rate,
             "positions": positions,
-            "trade_count": len(trades),
-            "settled_trade_count": len(settled_trades),
+            "trade_count": tot["total_trades"],
+            "settled_trade_count": tot["closed"],
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -197,7 +196,7 @@ def get_bot_logs():
 
 @app.get("/api/trades")
 def get_trades_history():
-    return {"trades": db.get_trades()}
+    return {"trades": db.get_trades(), "totals": db.get_trade_totals()}
 
 
 @app.get("/api/equity-history")

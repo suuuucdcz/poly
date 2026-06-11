@@ -272,6 +272,33 @@ def get_trades(limit=100):
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
+def get_trade_totals():
+    """Agrégats VIE ENTIÈRE sur la table trades (pas la fenêtre des 100 derniers) :
+    la vérité comptable du P&L réalisé."""
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT
+              COUNT(*)                                                        AS total_trades,
+              SUM(CASE WHEN action IN ('SELL','RESOLVE') AND pnl IS NOT NULL THEN 1 ELSE 0 END) AS closed,
+              SUM(CASE WHEN action IN ('SELL','RESOLVE') AND pnl > 0 THEN 1 ELSE 0 END)         AS wins,
+              SUM(CASE WHEN action='SELL'    AND pnl IS NOT NULL THEN 1 ELSE 0 END)             AS sells,
+              SUM(CASE WHEN action='RESOLVE' AND pnl IS NOT NULL THEN 1 ELSE 0 END)             AS resolves,
+              SUM(CASE WHEN action='SELL'    THEN COALESCE(pnl,0) ELSE 0 END)                   AS pnl_sells,
+              SUM(CASE WHEN action='RESOLVE' THEN COALESCE(pnl,0) ELSE 0 END)                   AS pnl_resolves
+            FROM trades
+        """).fetchone()
+        return {
+            "total_trades": row["total_trades"] or 0,
+            "closed": row["closed"] or 0,
+            "wins": row["wins"] or 0,
+            "sells": row["sells"] or 0,
+            "resolves": row["resolves"] or 0,
+            "pnl_sells": round(row["pnl_sells"] or 0.0, 2),
+            "pnl_resolves": round(row["pnl_resolves"] or 0.0, 2),
+            "pnl_total": round((row["pnl_sells"] or 0.0) + (row["pnl_resolves"] or 0.0), 2),
+        }
+
+
 def record_equity_snapshot(portfolio_value):
     with get_db() as conn:
         cursor = conn.cursor()

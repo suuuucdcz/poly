@@ -588,7 +588,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (tradesStr === recentTradesStr) return;
             recentTradesStr = tradesStr;
 
-            renderResults(data.trades || []);
+            renderResults(data.trades || [], data.totals);
 
             if (!data.trades || data.trades.length === 0) {
                 historyContainer.innerHTML = `<div class="text-center text-muted padded">Aucun trade historique enregistré.</div>`;
@@ -629,25 +629,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ===================== PARIS TERMINÉS (définitif) =====================
-    function renderResults(trades) {
+    function renderResults(trades, tot) {
         const body = document.getElementById("results-body");
         const totals = document.getElementById("results-totals");
         if (!body) return;
 
         const closed = trades.filter(t => (t.action === "SELL" || t.action === "RESOLVE") && t.pnl !== null);
-        if (!closed.length) {
+        if (!closed.length && !(tot && tot.closed)) {
             body.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Aucun pari terminé pour l'instant — les résolutions tombent ~1-2 h après minuit local de chaque ville.</td></tr>`;
             if (totals) totals.innerText = "";
             return;
         }
 
-        const total = closed.reduce((s, t) => s + t.pnl, 0);
-        const wins = closed.filter(t => t.pnl > 0).length;
-        const sells = closed.filter(t => t.action === "SELL");
-        const res = closed.filter(t => t.action === "RESOLVE");
-        if (totals) {
-            const cls = total >= 0 ? "pnl-positive" : "pnl-negative";
-            totals.innerHTML = `${closed.length} terminés (${res.length} résolus · ${sells.length} vendus) · ${wins} gagnants · TOTAL <strong class="${cls}">${total >= 0 ? "+" : ""}${total.toFixed(2)} $</strong>`;
+        // Totaux VIE ENTIÈRE calculés côté serveur (la liste ci-dessous n'affiche
+        // que les derniers trades, mais le bandeau dit toute la vérité comptable).
+        if (totals && tot) {
+            const cls = tot.pnl_total >= 0 ? "pnl-positive" : "pnl-negative";
+            totals.innerHTML = `${tot.closed} terminés (${tot.resolves} résolus ${tot.pnl_resolves >= 0 ? "+" : ""}${tot.pnl_resolves.toFixed(0)} $ · ${tot.sells} vendus ${tot.pnl_sells >= 0 ? "+" : ""}${tot.pnl_sells.toFixed(0)} $) · ${tot.wins} gagnants · TOTAL <strong class="${cls}">${tot.pnl_total >= 0 ? "+" : ""}${tot.pnl_total.toFixed(2)} $</strong>`;
         }
 
         let html = "";
