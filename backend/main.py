@@ -133,6 +133,17 @@ def reset_portfolio(req: ResetRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/positions/purge-old")
+async def purge_old_positions():
+    """Action unique : ferme tous les paris de l'ANCIEN modèle (vente au bid,
+    sinon perte actée) pour repartir sur une base 100 % modèle V2."""
+    try:
+        res = await bot_instance.purge_old_positions(config.MODEL_V2_CUTOFF)
+        return {"status": "success", "data": res}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.post("/api/positions/sell")
 async def sell_position(req: SellRequest):
     """Vend toute la position (bouton « Vendre tout » du dashboard)."""

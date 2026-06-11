@@ -18,6 +18,9 @@ HTTP_TIMEOUT = 8
 # DÉFAUTS DU BOT
 # ============================================================
 DEFAULT_STRATEGY = "weather"
+# Déploiement du modèle corrigé (biais+noyau+filtres+NWS) — sert de frontière
+# « ancien / nouveau » pour les badges et la purge.
+MODEL_V2_CUTOFF = "2026-06-10T16:00:00"
 DEFAULT_TICK_INTERVAL = 60
 MIN_TICK_INTERVAL = 10
 

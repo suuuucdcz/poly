@@ -148,6 +148,63 @@ class TradingBot:
         await self.weather.run(ctx, [], balance, portfolio_value)
 
     # ============================================================
+    # PURGE DES PARIS DE L'ANCIEN MODÈLE (action unique, sur demande)
+    # Vend au bid ce qui a un acheteur, passe le reste en perte (paper) :
+    # libère les plafonds régionaux et rend l'equity 100 % « modèle V2 ».
+    # ============================================================
+    async def purge_old_positions(self, cutoff):
+        async with self.lock:
+            sold_value = 0.0
+            written_off_cost = 0.0
+            closed = 0
+            for pos in db.get_positions():
+                if (pos.get("opened_at") or "9999") >= cutoff:
+                    continue
+                token = pos["token_id"]
+                remaining = pos["shares"]
+                if remaining <= 0:
+                    continue
+                realized = 0.0
+                # vendre au bid, jusqu'à 4 niveaux de carnet
+                for _ in range(4):
+                    if remaining < 1:
+                        break
+                    book = await self.client.fetch_book(token)
+                    bids = (book or {}).get("bids", [])
+                    if not bids:
+                        break
+                    best = max(bids, key=lambda x: float(x["price"]))
+                    price, size = float(best["price"]), float(best["size"])
+                    if price < 0.01:
+                        break
+                    qty = round(min(remaining, size), 1)
+                    if qty < 1:
+                        break
+                    rev = qty * price
+                    pnl = rev - qty * pos["avg_price"]
+                    db.update_balance(db.get_portfolio()["balance"] + rev)
+                    remaining = round(remaining - qty, 1)
+                    db.save_position(token, pos["market_id"], pos["question"], pos["outcome"], remaining, pos["avg_price"], price)
+                    db.add_trade(pos["market_id"], pos["question"], token, "SELL", pos["outcome"], qty, price, pnl)
+                    sold_value += rev
+                    realized += pnl
+                if remaining >= 0.1:
+                    # pas d'acheteur : on acte la perte (paper) et on libère le plafond
+                    pnl = -remaining * pos["avg_price"]
+                    db.add_trade(pos["market_id"], pos["question"], token, "SELL", pos["outcome"], remaining, 0.0, pnl)
+                    db.save_position(token, pos["market_id"], pos["question"], pos["outcome"], 0.0, 0.0, 0.0)
+                    written_off_cost += remaining * pos["avg_price"]
+                    realized += pnl
+                db.settle_bet(token, None, realized)   # sortie hors-calibration
+                closed += 1
+            self.log(
+                f"PURGE ancien modèle: {closed} positions fermées | récupéré {sold_value:.2f}$ au bid | "
+                f"passé en perte {written_off_cost:.2f}$ de coût",
+                "INFO",
+            )
+            return {"closed": closed, "recovered": round(sold_value, 2), "written_off": round(written_off_cost, 2)}
+
+    # ============================================================
     # VENTE MANUELLE (« Vendre tout » du dashboard)
     # ============================================================
     async def sell_position(self, token_id):
