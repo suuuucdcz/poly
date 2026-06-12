@@ -66,6 +66,11 @@ WEATHER_SYNTH_SIGMA_C = 1.6
 WEATHER_SYNTH_SIGMA_F = 2.9
 WEATHER_REALIZED_CACHE_TTL = 300    # cache du max réalisé (s)
 
+# INTERRUPTEUR D'ENTRÉES — coupé le 12/06 après verdict statistique : 58
+# résolutions, 0 gagnée (proba de malchance ~0,2 %). Les SORTIES continuent de
+# gérer le livre existant. Ne réactiver qu'avec une stratégie d'entrée revue.
+WEATHER_ENTRIES_ENABLED = False
+
 WEATHER_EDGE_THRESHOLD = 0.05       # edge mini (P calibrée − prix − frais)
 WEATHER_MIN_BUY_PRICE = 0.02        # garde-fous de prix
 WEATHER_MAX_BUY_PRICE = 0.60        # NE PAS acheter de favori cher (leçon crypto)

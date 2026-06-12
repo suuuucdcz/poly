@@ -301,7 +301,8 @@ class WeatherEdgeStrategy(Strategy):
                                     f"| vendu {qty} | PnL {pnl:+.2f}$",
                                     "SUCCESS" if pnl >= 0 else "WARNING",
                                 )
-                    elif (cfg.WEATHER_MIN_BUY_PRICE < b["yes_price"] < cfg.WEATHER_MAX_BUY_PRICE
+                    elif (cfg.WEATHER_ENTRIES_ENABLED
+                            and cfg.WEATHER_MIN_BUY_PRICE < b["yes_price"] < cfg.WEATHER_MAX_BUY_PRICE
                             and edge > cfg.WEATHER_EDGE_THRESHOLD and slots_left > 0):
                         candidates.append((b, p, p_cal, edge))
                 sig["buckets"].append(row)
