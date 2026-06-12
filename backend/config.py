@@ -69,7 +69,7 @@ WEATHER_REALIZED_CACHE_TTL = 300    # cache du max réalisé (s)
 # INTERRUPTEUR D'ENTRÉES — coupé le 12/06 après verdict statistique : 58
 # résolutions, 0 gagnée (proba de malchance ~0,2 %). Les SORTIES continuent de
 # gérer le livre existant. Ne réactiver qu'avec une stratégie d'entrée revue.
-WEATHER_ENTRIES_ENABLED = False
+WEATHER_ENTRIES_ENABLED = True   # réactivé en mode V4 « cycle » (jamais de résolution)
 
 WEATHER_EDGE_THRESHOLD = 0.05       # edge mini (P calibrée − prix − frais)
 WEATHER_MIN_BUY_PRICE = 0.02        # garde-fous de prix
@@ -90,7 +90,7 @@ WEATHER_NWS_CACHE_TTL = 300
 # Sorties : surpayé (le marché paie plus que la valeur modèle), sauvetage
 # (notre proba s'est effondrée mais un bid existe), verrouillage (issue quasi
 # certaine, on encaisse tôt et on recycle le capital).
-WEATHER_EXIT_EDGE = 0.12
+WEATHER_EXIT_EDGE = 0.07            # V4 : prise de profit plus rapide
 WEATHER_SALVAGE_P = 0.05
 WEATHER_SALVAGE_MIN_BID = 0.02
 WEATHER_LOCK_P = 0.80
@@ -127,8 +127,16 @@ WEATHER_STD_KELLY_DAMP = 0.5        # kelly /= (1 + DAMP * std)
 WEATHER_NWS_BLEND = 0.5             # poids du recentrage vers la prévision NWS
 WEATHER_NWS_FORECAST_TTL = 10800
 
-WEATHER_KELLY_FRACTION = 0.30       # sizing par edge (prudent)
+WEATHER_KELLY_FRACTION = 0.20       # sizing par edge (prudent)
 WEATHER_STAKE_MIN_USDC = 2.0
-WEATHER_STAKE_MAX_USDC = 25.0
-WEATHER_MAX_BUCKETS_PER_MARKET = 3  # diversifier, pas tout sur un seul marché
+WEATHER_STAKE_MAX_USDC = 10.0       # V4 : pilote à petites mises
+WEATHER_MAX_BUCKETS_PER_MARKET = 3
+
+# ===== MODE V4 « CYCLE » (trader le chemin, jamais la destination) =====
+# Verdict 0/58 aux résolutions -> on ne détient PLUS JAMAIS jusqu'à l'arrivée :
+#  - liquidation forcée le soir même (heure locale station) : un gagnant se vend
+#    ~0.90-0.97 sans risque binaire, un perdant se sauve à quelques centimes ;
+#  - entrées limitées à aujourd'hui/demain (la dérive J+2 a coûté cher).
+WEATHER_EVENING_LIQ_HOUR = 21       # heure locale de liquidation du jour J
+WEATHER_MAX_TARGET_DAYS = 1         # entrées: J (0) et J+1 (1) uniquement  # diversifier, pas tout sur un seul marché
 WEATHER_SIGNALS_MAX = 60            # snapshots exposés au frontend

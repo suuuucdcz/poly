@@ -22,6 +22,7 @@ Garde-fous « béton » :
 Règlement final par le tick principal. 100 % paper.
 """
 
+import datetime as _dt
 import time
 
 from backend import config, db, station_bias
@@ -208,6 +209,12 @@ class WeatherEdgeStrategy(Strategy):
             # « aujourd'hui » à la station (fuseau géométrique en estimation).
             est = station_local_date(lon)
             is_today = (est[0] == target_date)
+            local_hour = (_dt.datetime.utcnow() + _dt.timedelta(seconds=est[1])).hour
+            # V4 : distance en jours entre la cible et « aujourd'hui » à la station
+            try:
+                day_offset = (_dt.date.fromisoformat(target_date) - _dt.date.fromisoformat(est[0])).days
+            except ValueError:
+                day_offset = 9
             realized_used, realized_disp, realized_src = (None, None, None)
             if is_today:
                 realized_used, realized_disp, realized_src = await self._realized_for(
@@ -273,7 +280,12 @@ class WeatherEdgeStrategy(Strategy):
                         bid, bid_size = _best(book, "bids")
                         reason = None
                         if bid is not None and bid_size:
-                            if bid - p_cal >= cfg.WEATHER_EXIT_EDGE:
+                            # V4 : liquidation du soir — le max du jour est connu,
+                            # on encaisse (gagnant ~0.9x) ou on sauve (perdant)
+                            if (is_today and local_hour >= cfg.WEATHER_EVENING_LIQ_HOUR
+                                    and bid >= 0.01):
+                                reason = "clôture-soir"
+                            elif bid - p_cal >= cfg.WEATHER_EXIT_EDGE:
                                 reason = "surpayé"
                             elif p_cal < cfg.WEATHER_SALVAGE_P and bid >= cfg.WEATHER_SALVAGE_MIN_BID:
                                 reason = "sauvetage"
@@ -302,6 +314,7 @@ class WeatherEdgeStrategy(Strategy):
                                     "SUCCESS" if pnl >= 0 else "WARNING",
                                 )
                     elif (cfg.WEATHER_ENTRIES_ENABLED
+                            and day_offset <= cfg.WEATHER_MAX_TARGET_DAYS
                             and cfg.WEATHER_MIN_BUY_PRICE < b["yes_price"] < cfg.WEATHER_MAX_BUY_PRICE
                             and edge > cfg.WEATHER_EDGE_THRESHOLD and slots_left > 0):
                         candidates.append((b, p, p_cal, edge))
