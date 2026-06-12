@@ -42,7 +42,7 @@ SNAPSHOT_INTERVAL_SEC = 120   # fréquence d'envoi du snapshot vers Supabase Sto
 # ============================================================
 # CALIBRATION (apprentissage des probabilités)
 # ============================================================
-CALIBRATION_MIN_SAMPLES = 60   # avant ça : identité (pas assez de données)
+CALIBRATION_MIN_SAMPLES = 50   # 58 résolutions réelles en stock ; V4 ne résout plus -> activer sur l'acquis
 CALIBRATION_MIN_LOSSES = 10
 CALIBRATION_BINS = 10
 CALIBRATION_PRIOR = 25.0
