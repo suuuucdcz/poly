@@ -137,6 +137,9 @@ WEATHER_MAX_BUCKETS_PER_MARKET = 3
 #  - liquidation forcée le soir même (heure locale station) : un gagnant se vend
 #    ~0.90-0.97 sans risque binaire, un perdant se sauve à quelques centimes ;
 #  - entrées limitées à aujourd'hui/demain (la dérive J+2 a coûté cher).
-WEATHER_EVENING_LIQ_HOUR = 21       # heure locale de liquidation du jour J
-WEATHER_MAX_TARGET_DAYS = 1         # entrées: J (0) et J+1 (1) uniquement  # diversifier, pas tout sur un seul marché
+# Liquidation calée sur la clôture RÉELLE de chaque marché (son endDate) :
+# vendre dans les X dernières heures avant que CE marché se résolve. S'adapte
+# tout seul au fuseau de chaque ville, sans table d'heures locales.
+WEATHER_LIQUIDATE_BEFORE_CLOSE_H = 2.0
+WEATHER_MAX_TARGET_DAYS = 1         # entrées: J (0) et J+1 (1) uniquement
 WEATHER_SIGNALS_MAX = 60            # snapshots exposés au frontend

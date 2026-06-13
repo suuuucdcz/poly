@@ -35,6 +35,21 @@ from backend.weather_model import weighted_median
 # prévision déterministe de secours (met.no) : 21 scénarios équiprobables.
 _ZS = [-1.98, -1.47, -1.18, -0.97, -0.79, -0.64, -0.50, -0.37, -0.24, -0.12,
        0.0, 0.12, 0.24, 0.37, 0.50, 0.64, 0.79, 0.97, 1.18, 1.47, 1.98]
+
+
+def _hours_to_close(end_date):
+    """Heures avant la clôture du marché (en UTC), depuis son `endDate`.
+    None si inconnu/non parsable. Peut être négatif si l'heure est dépassée
+    (marché encore actif mais en cours de fermeture) -> on liquide quand même."""
+    if not end_date:
+        return None
+    try:
+        t = _dt.datetime.fromisoformat(str(end_date).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=_dt.timezone.utc)
+        return (t - _dt.datetime.now(_dt.timezone.utc)).total_seconds() / 3600.0
+    except Exception:
+        return None
 from backend.weather_model import (
     bucket_probabilities,
     ensemble_summary,
@@ -273,18 +288,20 @@ class WeatherEdgeStrategy(Strategy):
                     edge = p_cal - (b["yes_price"] + ctx.risk.taker_fee(b["yes_price"]))
                     row["p_cal"] = round(p_cal, 3)
                     row["edge"] = round(edge, 3)
+                    htc = _hours_to_close(b["end_date"])   # heures avant clôture réelle de CE marché
 
                     if held_shares:
-                        # SORTIES : surpayé / sauvetage / verrouillage
+                        # SORTIES : clôture / surpayé / sauvetage / verrouillage
                         book = await ctx.client.fetch_book(b["yes_token"])
                         bid, bid_size = _best(book, "bids")
                         reason = None
                         if bid is not None and bid_size:
-                            # V4 : liquidation du soir — le max du jour est connu,
-                            # on encaisse (gagnant ~0.9x) ou on sauve (perdant)
-                            if (is_today and local_hour >= cfg.WEATHER_EVENING_LIQ_HOUR
+                            # Liquidation calée sur la clôture RÉELLE de ce marché
+                            # (endDate) -> s'adapte au fuseau de chaque ville, tant
+                            # qu'un acheteur existe.
+                            if (htc is not None and htc <= cfg.WEATHER_LIQUIDATE_BEFORE_CLOSE_H
                                     and bid >= 0.01):
-                                reason = "clôture-soir"
+                                reason = "clôture"
                             elif bid - p_cal >= cfg.WEATHER_EXIT_EDGE:
                                 reason = "surpayé"
                             elif p_cal < cfg.WEATHER_SALVAGE_P and bid >= cfg.WEATHER_SALVAGE_MIN_BID:
@@ -315,6 +332,7 @@ class WeatherEdgeStrategy(Strategy):
                                 )
                     elif (cfg.WEATHER_ENTRIES_ENABLED
                             and day_offset <= cfg.WEATHER_MAX_TARGET_DAYS
+                            and not (htc is not None and htc <= cfg.WEATHER_LIQUIDATE_BEFORE_CLOSE_H)
                             and cfg.WEATHER_MIN_BUY_PRICE < b["yes_price"] < cfg.WEATHER_MAX_BUY_PRICE
                             and edge > cfg.WEATHER_EDGE_THRESHOLD and slots_left > 0):
                         candidates.append((b, p, p_cal, edge))
