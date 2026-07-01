@@ -25,17 +25,19 @@ from backend.weather_model import parse_bucket
 
 
 def winner_official_mid(label):
-    """Tranche gagnante -> estimation du max officiel (milieu de la tranche).
-    Convention troncature : '28°C' couvre [28,29) -> 28.5 ; '88-89°F' -> 89.0.
+    """Tranche gagnante -> estimation du max officiel (centre de la tranche).
+    Convention ARRONDI (majoritaire) : la source reporte des degrés entiers, donc
+    '28°C' == max reporté 28 -> 28.0 ; '88-89°F' -> 88.5.
+    (Avant : +0.5 systématique, qui gonflait artificiellement le biais « chaud ».)
     Tranches ouvertes (below/higher) : information non bornée -> None."""
     parsed = parse_bucket(label)
     if not parsed:
         return None
     kind, v1, v2, _unit = parsed
     if kind == "eq":
-        return v1 + 0.5
+        return float(v1)
     if kind == "range":
-        return (v1 + v2 + 1) / 2.0
+        return (v1 + v2) / 2.0
     return None  # ge / le : non borné
 
 

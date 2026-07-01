@@ -126,13 +126,23 @@ class PolymarketClient:
                     "yes_outcome": outcomes[0] if outcomes else "Yes",
                     "yes_price": float(prices[0]),
                     "end_date": m.get("endDate") or m.get("endDateIso"),
+                    # gameStartTime = minuit LOCAL du jour de résolution (en UTC) ->
+                    # donne le fuseau exact ; acceptingOrders = marché réellement ouvert ;
+                    # orderMinSize = taille d'ordre minimale imposée par le CLOB.
+                    "game_start": m.get("gameStartTime"),
+                    "accepting": bool(m.get("acceptingOrders", True)),
+                    "min_size": float(m.get("orderMinSize") or 5),
                     "closed": bool(m.get("closed", False)) or not m.get("active", True),
                 })
             if len(buckets) >= 3 and not any(o["title"] == title for o in out):
+                gs = next((b["game_start"] for b in buckets if b.get("game_start")), None)
                 out.append({
                     "title": title,
                     "slug": e.get("slug"),
                     "end_date": e.get("endDate"),
+                    # date LOCALE de résolution (robuste, vs parsing du titre) + fuseau
+                    "event_date": e.get("eventDate") or (m.get("endDateIso") if buckets else None),
+                    "game_start": gs,
                     "buckets": buckets,
                 })
         self._temp_cache = out

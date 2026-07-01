@@ -12,12 +12,15 @@ class RiskManager:
         self.max_trade_cap = cfg.MAX_TRADE_USDC_CAP
 
     def taker_fee(self, price):
-        """Frais taker : rate * price * (1 - price) * (1 - rebate).
+        """Frais taker Polymarket PAR PART : feeRate * price * (1 - price).
 
-        Les marchés météo sont aujourd'hui sans frais ; on garde cette retenue
-        comme marge de sécurité conservatrice (exige un edge un peu plus grand).
+        Formule officielle : frais = C · feeRate · p · (1−p). Catégorie « weather »
+        -> feeRate = 0.05 (confirmé sur la doc + `taker_base_fee` du CLOB). La cloche
+        p(1−p) rend les frais maximaux à 0.50 et faibles aux extrêmes (ex. 0.05·0.9·0.1
+        ≈ 0,45¢/part à 0.90). Le « rebate » précédent (−25 %) était fictif : SUPPRIMÉ,
+        il sous-estimait les frais réels d'un quart.
         """
-        return self.fee_rate * price * (1.0 - price) * (1.0 - self.fee_rebate)
+        return self.fee_rate * price * (1.0 - price)
 
     def max_trade_usdc(self, balance, portfolio_value):
         """Taille max d'une mise, en respectant les limites d'exposition."""

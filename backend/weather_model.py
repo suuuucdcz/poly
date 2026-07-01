@@ -8,10 +8,13 @@ Buckets supportés :
   '23°C or below'    -> max arrondi <= 23
   '24-25°C'          -> 24 <= max arrondi <= 25   (certains marchés)
 
-Règle officielle (lue dans les descriptions de marché) : la résolution est « la
-tranche qui CONTIENT le max », mesuré **à une décimale** (ex. 28.6°C). La tranche
-« 28°C » couvre donc [28.0, 28.9] → on **tronque** chaque scénario (floor), on
-n'arrondit PAS (28.6 → 28, pas 29).
+Règle officielle (RELUE dans les descriptions de marché) : la grande majorité des
+marchés se résolvent sur une source qui reporte le max « to whole degrees Celsius
+(eg, 9°C) » (METAR / Wunderground / NOAA) — c.-à-d. **arrondi au degré entier le
+plus proche**. La tranche « 28°C » couvre donc [27.5, 28.5) → on **arrondit** chaque
+scénario au demi près (28.6 → 29, 28.4 → 28), on ne tronque PAS.
+(Cas particulier : quelques marchés « to one decimal place » comme Hong Kong sont
+en réalité au plancher [28.0, 28.9] ; on privilégie ici la convention majoritaire.)
 
 Conditionnement intraday : si un max `realized` est déjà observé AUJOURD'HUI à
 la station (et que le marché porte sur aujourd'hui), le max final sera ≥
@@ -119,17 +122,17 @@ def _phi(x):
 
 
 def _bucket_bounds(parsed):
-    """Bornes CONTINUES [a, b) du max officiel pour une tranche (règle floor) :
-    'eq 28' -> [28,29) ; 'range 88-89' -> [88,90) ; 'ge 33' -> [33,+inf) ;
-    'le 23' -> (-inf,24)."""
+    """Bornes CONTINUES [a, b) du max officiel pour une tranche (règle ARRONDI) :
+    'eq 28' -> [27.5,28.5) ; 'range 88-89' -> [87.5,89.5) ; 'ge 33' -> [32.5,+inf) ;
+    'le 23' -> (-inf,23.5)."""
     kind, v1, v2, _u = parsed
     if kind == "eq":
-        return v1, v1 + 1
+        return v1 - 0.5, v1 + 0.5
     if kind == "range":
-        return v1, v2 + 1
+        return v1 - 0.5, v2 + 0.5
     if kind == "ge":
-        return v1, None
-    return None, v1 + 1   # le
+        return v1 - 0.5, None
+    return None, v1 + 0.5   # le
 
 
 def bucket_probabilities(members, buckets, realized=None, bandwidth=0.0):
@@ -182,10 +185,10 @@ def bucket_probabilities(members, buckets, realized=None, bandwidth=0.0):
                 out[lbl] /= total_w
         return out
 
-    # --- comptage brut (troncature floor) ---
+    # --- comptage brut (arrondi au degré entier le plus proche) ---
     if realized is not None:
         pairs = [(max(v, realized), w) for v, w in pairs]
-    ints = [(math.floor(v), w) for v, w in pairs]
+    ints = [(math.floor(v + 0.5), w) for v, w in pairs]   # round-half-up
     total = sum(w for _, w in ints)
     out = {}
     for label, parsed in buckets:

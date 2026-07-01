@@ -13,7 +13,7 @@ from datetime import datetime
 from backend import config, db
 from backend.polymarket_client import PolymarketClient
 from backend.risk import RiskManager
-from backend.strategies import TradeContext, WeatherEdgeStrategy
+from backend.strategies import TradeContext, WeatherConvergenceStrategy, WeatherEdgeStrategy
 
 
 class TradingBot:
@@ -29,7 +29,12 @@ class TradingBot:
         self.client = PolymarketClient()
         self.client.set_logger(self.log)
         self.risk = RiskManager()
-        self.weather = WeatherEdgeStrategy()
+        # Moteur actif : "convergence" (intraday, le vrai edge) ou "edge" (ancien
+        # modèle prévision, conservé pour référence). Voir config.STRATEGY_ENGINE.
+        if getattr(config, "STRATEGY_ENGINE", "convergence") == "convergence":
+            self.weather = WeatherConvergenceStrategy()
+        else:
+            self.weather = WeatherEdgeStrategy()
 
         # État exposé au frontend (signaux météo + apprentissage)
         self.ui_state = {"weather": [], "updated_at": 0, "learning": {}}

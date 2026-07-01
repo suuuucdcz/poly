@@ -149,7 +149,13 @@ def reset_portfolio(budget):
         cursor.execute("DELETE FROM positions")
         cursor.execute("DELETE FROM trades")
         cursor.execute("DELETE FROM equity_history")
-        
+        # Efface aussi l'historique d'apprentissage (les 504 paris 0-gagnés de
+        # l'ancien modèle) pour un VRAI départ propre du moteur convergence.
+        try:
+            cursor.execute("DELETE FROM bet_log")
+        except sqlite3.OperationalError:
+            pass
+
         # Reset portfolio settings
         cursor.execute(
             "INSERT OR REPLACE INTO portfolio (id, balance, initial_budget, created_at) VALUES (1, ?, ?, ?)",

@@ -249,6 +249,13 @@ class WeatherEdgeStrategy(Strategy):
             )
             slots_left = max(0, cfg.WEATHER_MAX_BUCKETS_PER_MARKET - held_count)
 
+            # Journée déjà jouée : si le marché a un favori quasi certain, la
+            # tranche gagnante est connue -> on n'ENTRE plus sur les voisines
+            # (les sorties, elles, restent actives). Coupe les longshots perdants.
+            market_decided = any(
+                b["yes_price"] >= cfg.WEATHER_SKIP_IF_FAVORITE_ABOVE for b in buckets
+            )
+
             sig = {
                 "city": city,
                 "title": ev["title"],
@@ -331,6 +338,7 @@ class WeatherEdgeStrategy(Strategy):
                                     "SUCCESS" if pnl >= 0 else "WARNING",
                                 )
                     elif (cfg.WEATHER_ENTRIES_ENABLED
+                            and not market_decided
                             and day_offset <= cfg.WEATHER_MAX_TARGET_DAYS
                             and not (htc is not None and htc <= cfg.WEATHER_LIQUIDATE_BEFORE_CLOSE_H)
                             and cfg.WEATHER_MIN_BUY_PRICE < b["yes_price"] < cfg.WEATHER_MAX_BUY_PRICE
