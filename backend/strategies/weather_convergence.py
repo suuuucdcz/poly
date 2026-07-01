@@ -181,8 +181,11 @@ class WeatherConvergenceStrategy(Strategy):
                          if b["yes_token"] in positions and positions[b["yes_token"]]["shares"] > 0]
 
             # --- max courant R au capteur (VALEUR seule ; horloge déjà fixée) ---
+            # UNIQUEMENT le jour de résolution : après minuit local, local_date pointe
+            # sur le lendemain -> lire R donnerait le max d'un AUTRE jour. Une position
+            # tenue au-delà se liquide via la règle 'jour passé' ci-dessous.
             R, R_src = (None, None)
-            if (is_today or held_here) and local_date is not None and offset is not None:
+            if is_today and local_date is not None and offset is not None:
                 R, R_src = await self._running_max(city, lat, lon, om_unit, local_date, offset)
 
             # --- prévision (utile seulement avant le pic) ---
@@ -200,13 +203,14 @@ class WeatherConvergenceStrategy(Strategy):
                 probs = bucket_probabilities(members, parsed, realized=floor, bandwidth=sigma)
 
             past_flatten = (local_hour is not None and local_hour >= cfg.CONV_FLATTEN_LOCAL_HOUR)
-            # Base d'entrée valide : APRÈS le pic, R suffit (le max est ~lu). AVANT
-            # le pic, il FAUT une vraie prévision — sinon M_hat=R ancre trop bas (à
-            # 11h, R est loin du max de l'après-midi) et on parierait sur une tranche
-            # trop basse. C'est le défaut qui a produit le pari Miami 90-91°F à 11h.
+            # ENTRÉES UNIQUEMENT APRÈS LE PIC : c'est là que le max est ~lu au capteur
+            # (M ≈ R) et que l'edge est réel (rattraper le lag du marché). AVANT le pic,
+            # le max final DÉPEND de la chauffe restante à prévoir — même avec une
+            # prévision, si elle est déjà dépassée par R (cas Miami 11h : R=89.6 >
+            # prévision) on ancrerait sur une tranche trop basse. Deviner la chauffe
+            # = exactement ce qui a fait 0/504. Pré-pic -> on observe, on n'entre pas.
             post_peak = (local_hour is not None and local_hour >= cfg.CONV_PEAK_HOUR)
-            have_basis = post_peak or (forecast_med is not None)
-            entries_ok = (is_today and R is not None and not past_flatten and have_basis
+            entries_ok = (is_today and R is not None and post_peak and not past_flatten
                           and ((not cfg.CONV_ENTRIES_NWS_ONLY) or city in NWS_STATIONS))
 
             held_count = len(held_here)
@@ -250,8 +254,10 @@ class WeatherConvergenceStrategy(Strategy):
                         # Liquidation calée sur l'heure LOCALE (gameStartTime), PAS sur
                         # endDate : ce dernier (12:00 UTC) est nominal — les marchés
                         # restent tradables jusqu'à ~00h30 locale (publication de la
-                        # donnée du lendemain). On flatten le soir, bien avant.
-                        flatten = past_flatten
+                        # donnée du lendemain). On flatten le soir (20h), bien avant ; et
+                        # si le jour de résolution est PASSÉ (position pas soldée, ex.
+                        # aucun acheteur à 20h), on dump avant la résolution binaire.
+                        flatten = past_flatten or not is_today
                         reason, sell_frac = None, 1.0
                         if dead:
                             reason, sell_frac = "coupe", 1.0            # perdant : on coupe
@@ -369,12 +375,15 @@ class WeatherConvergenceStrategy(Strategy):
         if ctx.ui_state is not None:
             ctx.ui_state["weather"] = signals[: cfg.WEATHER_SIGNALS_MAX]
             ctx.ui_state["updated_at"] = now
-            stats = db.get_bet_stats(kind="weather_conv")
+            # P&L RÉEL depuis la table trades (vérité comptable) et non depuis bet_log,
+            # qui ne settle que le dernier morceau d'un scale-out (sous-comptage) et
+            # laisse 'wins' à 0 sur les sorties anticipées. wins = sorties gagnantes.
+            tot = db.get_trade_totals()
             ctx.ui_state["learning"] = {
                 "calibrated": False,
-                "samples": stats["settled"],
-                "wins": stats["wins"],
-                "pnl": round(stats["pnl"], 2),
+                "samples": tot["closed"],
+                "wins": tot["wins"],
+                "pnl": tot["pnl_total"],
             }
             ctx.ui_state["diag"] = {
                 "last_net_error": self.feed.last_error,
