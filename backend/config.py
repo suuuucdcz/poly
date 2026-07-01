@@ -202,3 +202,20 @@ CONV_KELLY = 0.25                  # Kelly fractionnaire sur l'edge de convergen
 CONV_STAKE_MIN_USDC = 2.0
 CONV_STAKE_MAX_USDC = 8.0          # PRUDENT : petites mises tant que l'edge n'est pas prouvé
 CONV_MAX_BUCKETS_PER_MARKET = 2
+
+# ============================================================
+# ARBITRAGE DE PANIER (NegRisk) — edge STRUCTUREL, sans opinion
+# ============================================================
+# Une et UNE SEULE tranche d'un event température se résout à 1$ (negRisk).
+# Si la somme des meilleurs asks de TOUTES les tranches + frais < 1$, acheter le
+# panier complet verrouille un profit garanti à la résolution, quoi qu'il arrive
+# au thermomètre. Aucune prévision, aucune vitesse (les fenêtres durent des
+# minutes -> tick 60 s suffisant). Positions taguées [ARB] et tenues jusqu'à la
+# résolution (le seul cas où la résolution binaire est notre alliée).
+ARB_ENABLED = True
+ARB_MIN_EDGE = 0.015          # profit net mini par set : 1 − (somme asks + frais)
+ARB_STAKE_MAX_USDC = 40.0     # capital max immobilisé par panier
+ARB_MAX_TOTAL_USDC = 200.0    # capital max immobilisé en paniers, toutes villes
+ARB_BOOKS_BUDGET = 36         # carnets lus max par tick (maîtrise la charge API)
+ARB_RECHECK_NEAR_SEC = 120    # somme proche de 1 -> re-vérifier dans 2 min
+ARB_RECHECK_FAR_SEC = 600     # somme loin de 1 -> re-vérifier dans 10 min

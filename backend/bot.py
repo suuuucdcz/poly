@@ -13,7 +13,12 @@ from datetime import datetime
 from backend import config, db
 from backend.polymarket_client import PolymarketClient
 from backend.risk import RiskManager
-from backend.strategies import TradeContext, WeatherConvergenceStrategy, WeatherEdgeStrategy
+from backend.strategies import (
+    NegRiskArbStrategy,
+    TradeContext,
+    WeatherConvergenceStrategy,
+    WeatherEdgeStrategy,
+)
 
 
 class TradingBot:
@@ -35,6 +40,9 @@ class TradingBot:
             self.weather = WeatherConvergenceStrategy()
         else:
             self.weather = WeatherEdgeStrategy()
+        # Arbitrage de panier NegRisk : edge structurel, tourne EN PLUS de la
+        # convergence (mêmes events via le cache de découverte, positions [ARB]).
+        self.arb = NegRiskArbStrategy()
 
         # État exposé au frontend (signaux météo + apprentissage)
         self.ui_state = {"weather": [], "updated_at": 0, "learning": {}}
@@ -151,6 +159,12 @@ class TradingBot:
             ui_state=self.ui_state,
         )
         await self.weather.run(ctx, [], balance, portfolio_value)
+
+        # 4. Arbitrage de panier (NegRisk) — après la convergence, cache partagé
+        try:
+            await self.arb.run(ctx, [], balance, portfolio_value)
+        except Exception as e:
+            self.log(f"ARB: erreur scanner: {e}", "WARNING")
 
     # ============================================================
     # PURGE DES PARIS DE L'ANCIEN MODÈLE (action unique, sur demande)

@@ -151,7 +151,11 @@ class WeatherConvergenceStrategy(Strategy):
             return
 
         balance = db.get_portfolio()["balance"]
-        positions = {p["token_id"]: p for p in db.get_positions()}
+        # Les paniers d'arbitrage [ARB] sont EXCLUS : ils se tiennent jusqu'à la
+        # résolution (c'est elle qui paie) — nos sorties du soir les détruiraient.
+        from backend.strategies.weather_negrisk import is_arb_position
+        positions = {p["token_id"]: p for p in db.get_positions()
+                     if not is_arb_position(p)}
         self.feed.ens_budget = cfg.WEATHER_ENS_BUDGET_PER_TICK
         signals = []
 
