@@ -296,9 +296,16 @@ class WeatherFeed:
         best = None
         for f in data.get("features", []):
             p = f.get("properties", {})
-            v = (p.get("temperature") or {}).get("value")
+            temp = p.get("temperature") or {}
+            v = temp.get("value")
             ts = p.get("timestamp")
             if v is None or not ts:
+                continue
+            # Contrôle qualité NWS : X = rejeté, Q = douteux. Une seule lecture
+            # aberrante (capteur HS) fausserait R -> mauvaise tranche achetée ou
+            # bonne position coupée à tort.
+            qc = str(temp.get("qualityControl") or "").split(":")[-1].upper()
+            if qc in ("X", "Q"):
                 continue
             try:
                 # timestamp UTC -> date locale station via le décalage Open-Meteo

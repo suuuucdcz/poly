@@ -189,7 +189,14 @@ CONV_SIGMA_EVENING_DECAY = 0.02    # σ diminue de ce montant par heure après l
 CONV_FAIR_CUT = 0.25               # sortie « molle » : si notre tranche passe sous ce seuil, on coupe
 CONV_TP1 = 0.80                    # scale-out : au-dessus de ce bid, on allège
 CONV_TP1_FRAC = 0.5                # fraction vendue au palier TP1
+CONV_TP_MIN_PROFIT = 0.04          # TP seulement si bid > coût + marge (sinon on churnerait :
+                                   #   acheté 0.87, TP à bid 0.84 = vente À PERTE + frais x2)
 CONV_TP2 = 0.93                    # lock : au-dessus de ce bid, on vend tout (risque binaire nul)
+# Confirmation du PIC : le pic thermique varie selon la ville (LA/Phoenix ~16-17h).
+# 15h fixe ne suffit pas -> on exige aussi que R n'ait plus monté depuis X secondes
+# avant d'autoriser une entrée (sinon on achèterait round(R) pendant que ça chauffe
+# encore, pour se faire couper 1h après).
+CONV_STABLE_SEC = 2700             # R inchangé depuis 45 min = pic confirmé
 CONV_FLATTEN_LOCAL_HOUR = 20.0     # liquidation TOTALE passé cette heure locale (jamais de résolution)
 CONV_KELLY = 0.25                  # Kelly fractionnaire sur l'edge de convergence
 CONV_STAKE_MIN_USDC = 2.0

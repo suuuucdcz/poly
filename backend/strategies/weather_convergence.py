@@ -85,6 +85,12 @@ class WeatherConvergenceStrategy(Strategy):
         self.cfg = cfg
         self.feed = WeatherFeed(cfg)
         self._warned = set()
+        # Confirmation du pic : (city, date) -> (dernier R vu, ts de la dernière HAUSSE).
+        # Une entrée n'est permise que si R n'a plus monté depuis CONV_STABLE_SEC.
+        self._r_seen = {}
+        # Scale-out one-shot : tokens déjà allégés (sinon le TP se re-déclenche à
+        # chaque tick et grignote la position en payant des frais à chaque vente).
+        self._tp_done = set()
 
     # ------------------------------------------------------------
     # Max courant `R` (running max) + heure locale + date locale
@@ -188,6 +194,18 @@ class WeatherConvergenceStrategy(Strategy):
             if is_today and local_date is not None and offset is not None:
                 R, R_src = await self._running_max(city, lat, lon, om_unit, local_date, offset)
 
+            # --- Confirmation du pic : R doit avoir cessé de monter ---
+            r_stable = False
+            if R is not None:
+                key = (city, local_date)
+                prev = self._r_seen.get(key)
+                if prev is None or R > prev[0] + 0.05:
+                    self._r_seen[key] = (R, now)      # R monte (ou 1re lecture) -> chrono reparti
+                else:
+                    r_stable = (now - prev[1]) >= cfg.CONV_STABLE_SEC
+                if len(self._r_seen) > 1000:          # hygiène mémoire (dates passées)
+                    self._r_seen = {k: v for k, v in self._r_seen.items() if k[1] == local_date}
+
             # --- prévision (utile seulement avant le pic) ---
             forecast_med = None
             if is_today and local_hour is not None and local_hour < cfg.CONV_PEAK_HOUR:
@@ -210,7 +228,10 @@ class WeatherConvergenceStrategy(Strategy):
             # prévision) on ancrerait sur une tranche trop basse. Deviner la chauffe
             # = exactement ce qui a fait 0/504. Pré-pic -> on observe, on n'entre pas.
             post_peak = (local_hour is not None and local_hour >= cfg.CONV_PEAK_HOUR)
-            entries_ok = (is_today and R is not None and post_peak and not past_flatten
+            # + r_stable : le pic réel varie (LA/Phoenix ~16-17h). Entrer à 15h05
+            # pendant que ça chauffe encore = achats de round(R) coupés 1h après.
+            entries_ok = (is_today and R is not None and post_peak and r_stable
+                          and not past_flatten
                           and ((not cfg.CONV_ENTRIES_NWS_ONLY) or city in NWS_STATIONS))
 
             held_count = len(held_here)
@@ -221,7 +242,7 @@ class WeatherConvergenceStrategy(Strategy):
                 "is_today": bool(is_today), "median": round(M_hat, 1) if M_hat is not None else None,
                 "std": round(sigma, 2) if sigma is not None else None, "spread": None,
                 "realized": round(R, 1) if R is not None else None, "realized_src": R_src,
-                "bias": None, "model_src": "convergence", "nws": None,
+                "stable": bool(r_stable), "bias": None, "model_src": "convergence", "nws": None,
                 "local_hour": round(local_hour, 1) if local_hour is not None else None,
                 "n": 0, "buckets": [], "action": None,
             }
@@ -267,17 +288,26 @@ class WeatherConvergenceStrategy(Strategy):
                             reason, sell_frac = "lock", 1.0             # convergence faite
                         elif fair is not None and fair < cfg.CONV_FAIR_CUT:
                             reason, sell_frac = "sortie", 1.0           # notre tranche décroche
-                        elif bid >= cfg.CONV_TP1:
-                            reason, sell_frac = "TP", cfg.CONV_TP1_FRAC  # scale-out partiel
+                        elif (bid >= cfg.CONV_TP1
+                                and bid >= pos["avg_price"] + cfg.CONV_TP_MIN_PROFIT
+                                and b["yes_token"] not in self._tp_done):
+                            # scale-out partiel : EN PROFIT uniquement (entrée possible
+                            # jusqu'à 0.90 -> sans ce garde, TP à 0.80 vendrait à perte)
+                            # et UNE SEULE FOIS (sinon re-déclenché à chaque tick).
+                            reason, sell_frac = "TP", cfg.CONV_TP1_FRAC
                         if reason and bid >= 0.01:
                             qty = round(min(held, bid_size) * sell_frac, 1)
                             if qty >= 1.0:
+                                if reason == "TP":
+                                    self._tp_done.add(b["yes_token"])
                                 # revenu NET des frais taker (5 % · bid · (1−bid) par part)
                                 revenue = qty * (bid - ctx.risk.taker_fee(bid))
                                 pnl = revenue - qty * pos["avg_price"]
                                 balance += revenue
                                 db.update_balance(balance)
                                 remaining = round(held - qty, 1)
+                                if remaining < 1.0:
+                                    self._tp_done.discard(b["yes_token"])   # position soldée
                                 db.save_position(b["yes_token"], b["market_id"], pos["question"],
                                                  pos["outcome"], remaining, pos["avg_price"], bid)
                                 db.add_trade(b["market_id"], pos["question"], b["yes_token"],
