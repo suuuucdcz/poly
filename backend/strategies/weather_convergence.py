@@ -200,7 +200,13 @@ class WeatherConvergenceStrategy(Strategy):
                 probs = bucket_probabilities(members, parsed, realized=floor, bandwidth=sigma)
 
             past_flatten = (local_hour is not None and local_hour >= cfg.CONV_FLATTEN_LOCAL_HOUR)
-            entries_ok = (is_today and R is not None and not past_flatten
+            # Base d'entrée valide : APRÈS le pic, R suffit (le max est ~lu). AVANT
+            # le pic, il FAUT une vraie prévision — sinon M_hat=R ancre trop bas (à
+            # 11h, R est loin du max de l'après-midi) et on parierait sur une tranche
+            # trop basse. C'est le défaut qui a produit le pari Miami 90-91°F à 11h.
+            post_peak = (local_hour is not None and local_hour >= cfg.CONV_PEAK_HOUR)
+            have_basis = post_peak or (forecast_med is not None)
+            entries_ok = (is_today and R is not None and not past_flatten and have_basis
                           and ((not cfg.CONV_ENTRIES_NWS_ONLY) or city in NWS_STATIONS))
 
             held_count = len(held_here)
