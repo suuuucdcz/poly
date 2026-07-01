@@ -151,11 +151,17 @@ class WeatherConvergenceStrategy(Strategy):
             return
 
         balance = db.get_portfolio()["balance"]
-        # Les paniers d'arbitrage [ARB] sont EXCLUS : ils se tiennent jusqu'à la
-        # résolution (c'est elle qui paie) — nos sorties du soir les détruiraient.
+        # Les paniers d'arbitrage [ARB] sont EXCLUS des sorties : ils se tiennent
+        # jusqu'à la résolution (c'est elle qui paie) — nos sorties du soir les
+        # détruiraient. Mais leurs tokens sont BLOQUÉS à l'achat : acheter un token
+        # déjà [ARB] fusionnerait les deux positions (clé = token_id) et notre
+        # question écraserait le tag -> le flatten du soir vendrait une patte du
+        # panier et casserait la garantie de l'arbitrage.
         from backend.strategies.weather_negrisk import is_arb_position
-        positions = {p["token_id"]: p for p in db.get_positions()
-                     if not is_arb_position(p)}
+        all_pos = db.get_positions()
+        arb_tokens = {p["token_id"] for p in all_pos
+                      if is_arb_position(p) and p["shares"] > 0}
+        positions = {p["token_id"]: p for p in all_pos if not is_arb_position(p)}
         self.feed.ens_budget = cfg.WEATHER_ENS_BUDGET_PER_TICK
         signals = []
 
@@ -329,7 +335,8 @@ class WeatherConvergenceStrategy(Strategy):
 
                 # ---------------- ENTRÉES (villes NWS, gagnant connu sous-coté) --------
                 elif (entries_ok and slots_left > 0 and fair is not None
-                        and fair >= cfg.CONV_MIN_FAIR and b.get("accepting", True)):
+                        and fair >= cfg.CONV_MIN_FAIR and b.get("accepting", True)
+                        and b["yes_token"] not in arb_tokens):
                     ask_disp = b["yes_price"]
                     edge = fair - ask_disp - ctx.risk.taker_fee(ask_disp)   # net des frais d'entrée
                     row["edge"] = round(edge, 3)

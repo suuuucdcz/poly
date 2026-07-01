@@ -108,11 +108,17 @@ class NegRiskArbStrategy(Strategy):
         positions = db.get_positions()
         arb_open_cost = sum(p["shares"] * p["avg_price"] for p in positions
                             if is_arb_position(p) and p["shares"] > 0)
-        held_tokens = {p["token_id"] for p in positions
-                       if is_arb_position(p) and p["shares"] > 0}
+        # TOUTES les positions ouvertes (arb OU convergence) bloquent l'event :
+        # les positions sont indexées par token_id -> acheter une patte sur un
+        # token déjà tenu par la convergence FUSIONNERAIT les deux positions
+        # (et le tag [ARB] écraserait la question), mélangeant deux logiques de
+        # sortie incompatibles. Couvre aussi le one-shot par panier.
+        held_tokens = {p["token_id"] for p in positions if p["shares"] > 0}
 
         budget = cfg.ARB_BOOKS_BUDGET
         checked, best_cost = 0, None
+        if len(self._next_check) > 500:      # hygiène : events des jours passés
+            self._next_check = {t: ts for t, ts in self._next_check.items() if ts > now}
 
         # Les plus prometteurs d'abord : somme des prix gamma la plus basse.
         # (Prix gamma = indication ; la décision se prend sur les VRAIS carnets.)
