@@ -154,17 +154,17 @@ class WeatherConvergenceStrategy(Strategy):
             return
 
         balance = db.get_portfolio()["balance"]
-        # Les paniers d'arbitrage [ARB] sont EXCLUS des sorties : ils se tiennent
+        # Les positions [ARB]/[SWEEP] sont EXCLUES des sorties : elles se tiennent
         # jusqu'à la résolution (c'est elle qui paie) — nos sorties du soir les
-        # détruiraient. Mais leurs tokens sont BLOQUÉS à l'achat : acheter un token
-        # déjà [ARB] fusionnerait les deux positions (clé = token_id) et notre
+        # détruiraient. Et leurs tokens sont BLOQUÉS à l'achat : acheter un token
+        # déjà tagué fusionnerait les deux positions (clé = token_id) et notre
         # question écraserait le tag -> le flatten du soir vendrait une patte du
-        # panier et casserait la garantie de l'arbitrage.
-        from backend.strategies.weather_negrisk import is_arb_position
+        # panier / le gagnant du sweep et casserait leur garantie.
+        from backend.strategies.weather_negrisk import is_held_to_resolution
         all_pos = db.get_positions()
         arb_tokens = {p["token_id"] for p in all_pos
-                      if is_arb_position(p) and p["shares"] > 0}
-        positions = {p["token_id"]: p for p in all_pos if not is_arb_position(p)}
+                      if is_held_to_resolution(p) and p["shares"] > 0}
+        positions = {p["token_id"]: p for p in all_pos if not is_held_to_resolution(p)}
         self.feed.ens_budget = cfg.WEATHER_ENS_BUDGET_PER_TICK
         signals = []
 

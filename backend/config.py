@@ -228,3 +228,18 @@ ARB_MAX_TOTAL_USDC = 200.0    # capital max immobilisé en paniers, toutes ville
 ARB_BOOKS_BUDGET = 36         # carnets lus max par tick (maîtrise la charge API)
 ARB_RECHECK_NEAR_SEC = 120    # somme proche de 1 -> re-vérifier dans 2 min
 ARB_RECHECK_FAR_SEC = 600     # somme loin de 1 -> re-vérifier dans 10 min
+
+# ============================================================
+# BALAYAGE DE RÉSOLUTION (« sweep ») — le gagnant est DÉJÀ connu
+# ============================================================
+# Fin de soirée locale / lendemain matin : le max du jour est final (METAR de la
+# station de résolution, validé 8/8 contre les marchés convergés). Si la tranche
+# gagnante se paie encore <= 0.97, on encaisse les derniers centimes — donnée
+# acquise, pas de prévision. HUMILITÉ : jamais contre le marché (ask >= 0.80).
+SWEEP_ENABLED = True
+SWEEP_EVENING_HOUR = 22.0     # dès cette heure locale, le max est quasi final
+SWEEP_MIN_PRICE = 0.80        # le marché doit déjà être d'accord (leçon 0/504)
+SWEEP_MAX_PRICE = 0.97        # sous ce prix il reste des centimes à rafler
+SWEEP_MIN_EDGE = 0.02         # profit net mini (1 − ask − frais)
+SWEEP_STAKE_MAX_USDC = 25.0   # par marché
+SWEEP_MAX_TOTAL_USDC = 300.0  # capital total immobilisé (résolution le matin)

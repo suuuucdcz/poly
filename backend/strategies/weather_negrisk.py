@@ -39,6 +39,9 @@ from backend.weather_model import parse_bucket
 from backend.strategies.base import Strategy
 
 ARB_TAG = "[ARB]"
+# Tags des positions tenues JUSQU'À la résolution (arbitrage + sweep) : le moteur
+# convergence ne doit ni les vendre ni racheter leurs tokens.
+HELD_TO_RESOLUTION_TAGS = ("[ARB]", "[SWEEP]")
 
 
 def _best_ask(book):
@@ -53,9 +56,14 @@ def _best_ask(book):
 
 
 def is_arb_position(pos):
-    """True si la position appartient à un panier d'arbitrage (à ne pas gérer
-    par les sorties du moteur convergence)."""
+    """True si la position appartient à un panier d'arbitrage."""
     return str(pos.get("question", "")).startswith(ARB_TAG)
+
+
+def is_held_to_resolution(pos):
+    """True si la position se tient jusqu'à la résolution ([ARB] ou [SWEEP]) —
+    le moteur convergence ne doit ni la vendre ni racheter son token."""
+    return str(pos.get("question", "")).startswith(HELD_TO_RESOLUTION_TAGS)
 
 
 class NegRiskArbStrategy(Strategy):

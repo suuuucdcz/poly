@@ -15,6 +15,7 @@ from backend.polymarket_client import PolymarketClient
 from backend.risk import RiskManager
 from backend.strategies import (
     NegRiskArbStrategy,
+    ResolutionSweepStrategy,
     TradeContext,
     WeatherConvergenceStrategy,
     WeatherEdgeStrategy,
@@ -43,6 +44,10 @@ class TradingBot:
         # Arbitrage de panier NegRisk : edge structurel, tourne EN PLUS de la
         # convergence (mêmes events via le cache de découverte, positions [ARB]).
         self.arb = NegRiskArbStrategy()
+        # Balayage de résolution : achète le gagnant déjà connu (soirée/lendemain).
+        # Partage le feed du moteur météo (cache METAR commun -> zéro appel en plus).
+        self.sweep = ResolutionSweepStrategy()
+        self.sweep.feed = getattr(self.weather, "feed", None)
 
         # État exposé au frontend (signaux météo + apprentissage)
         self.ui_state = {"weather": [], "updated_at": 0, "learning": {}}
@@ -165,6 +170,12 @@ class TradingBot:
             await self.arb.run(ctx, [], balance, portfolio_value)
         except Exception as e:
             self.log(f"ARB: erreur scanner: {e}", "WARNING")
+
+        # 5. Balayage de résolution — gagnants déjà connus payés < 1.00
+        try:
+            await self.sweep.run(ctx, [], balance, portfolio_value)
+        except Exception as e:
+            self.log(f"SWEEP: erreur: {e}", "WARNING")
 
     # ============================================================
     # PURGE DES PARIS DE L'ANCIEN MODÈLE (action unique, sur demande)
