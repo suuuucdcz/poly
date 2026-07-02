@@ -6,10 +6,17 @@ nécessaires au règlement et à la clôture manuelle des positions.
 
 import asyncio
 import json
+import re
 import time
 import urllib.request
 
 from backend import config
+
+# Code ICAO de la station de résolution, lu DANS la description du marché
+# (URL Wunderground « .../daily/us/tx/dallas/KDAL » ou NOAA « timeseries?site=UUWW »).
+# C'est LA vérité — le registre local de villes a déjà eu tort (NYC = LaGuardia,
+# pas Central Park comme on le croyait).
+_ICAO_RE = re.compile(r"(?:wunderground\.com/history/daily/\S*?/|timeseries\?site=)([A-Z][A-Z0-9]{3})\b")
 
 
 class PolymarketClient:
@@ -136,6 +143,13 @@ class PolymarketClient:
                 })
             if len(buckets) >= 3 and not any(o["title"] == title for o in out):
                 gs = next((b["game_start"] for b in buckets if b.get("game_start")), None)
+                # Station de résolution : extraite de la source officielle du marché
+                src = " ".join(filter(None, [
+                    e.get("resolutionSource"), e.get("description"),
+                    (markets[0].get("resolutionSource") if markets else None),
+                    (markets[0].get("description") if markets else None),
+                ]))
+                icao_m = _ICAO_RE.search(src)
                 out.append({
                     "title": title,
                     "slug": e.get("slug"),
@@ -143,6 +157,7 @@ class PolymarketClient:
                     # date LOCALE de résolution (robuste, vs parsing du titre) + fuseau
                     "event_date": e.get("eventDate") or (m.get("endDateIso") if buckets else None),
                     "game_start": gs,
+                    "icao": icao_m.group(1) if icao_m else None,
                     "buckets": buckets,
                 })
         self._temp_cache = out

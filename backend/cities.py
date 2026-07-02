@@ -72,8 +72,11 @@ CITIES = {
     "amsterdam": (52.318, 4.790),        # Schiphol
     "berlin": (52.366, 13.503),          # BER
     "madrid": (40.472, -3.561),          # Barajas
-    "new york": (40.779, -73.969),       # Central Park
-    "nyc": (40.779, -73.969),
+    # ATTENTION : les marchés NYC actuels se résolvent à LAGUARDIA (lu dans la
+    # description), PAS à Central Park comme d'abord cru. L'ICAO de la description
+    # du marché fait foi ; ceci n'est que le secours.
+    "new york": (40.777, -73.872),       # LaGuardia
+    "nyc": (40.777, -73.872),
     "philadelphia": (39.873, -75.241),
     "washington": (38.935, -77.447),
     "phoenix": (33.434, -112.012),
@@ -124,10 +127,20 @@ NWS_STATIONS = {
     "miami": "KMIA",
     "san francisco": "KSFO",
     "seattle": "KSEA",
-    "new york": "KNYC",      # Central Park
-    "nyc": "KNYC",
+    "new york": "KLGA",      # LaGuardia (la description du marché fait foi)
+    "nyc": "KLGA",
     "philadelphia": "KPHL",
     "phoenix": "KPHX",
+}
+
+
+# Ville -> code ICAO de la station METAR = la donnée que Wunderground (source de
+# résolution) convertit. Les stations US NWS publient les mêmes METAR ; on ajoute
+# les internationales VÉRIFIÉES dans les descriptions de marché (URL Wunderground).
+METAR_STATIONS = {
+    **NWS_STATIONS,
+    "london": "EGLC",        # London City Airport (vérifié : wunderground .../gb/london/EGLC)
+    "guangzhou": "ZGGG",     # Baiyun Intl (vérifié : wunderground .../cn/guangzhou/ZGGG)
 }
 
 

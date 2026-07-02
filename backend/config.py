@@ -174,7 +174,10 @@ WEATHER_SIGNALS_MAX = 60            # snapshots exposés au frontend
 # on COUPE tout de suite ce qui diverge. Jamais de tenue jusqu'à la résolution.
 STRATEGY_ENGINE = "convergence"     # "convergence" (nouveau) ou "edge" (ancien modèle prévision)
 
-CONV_PEAK_HOUR = 15.0               # heure locale ≈ pic de température (max ≈ figé après)
+# 15h était TROP TÔT (mesuré : Denver 01/07 acheté 16h43, le max a fini 2°F plus
+# haut ; Atlanta 02/07 +1.8°F après un plateau de 45 min à 15h). En été US le vrai
+# max tombe souvent 16h-18h locales.
+CONV_PEAK_HOUR = 17.0               # heure locale ≈ pic de température (max ≈ figé après)
 CONV_ENTRIES_NWS_ONLY = True        # PRUDENT : n'entrer que là où on lit le capteur EXACT
                                     #   (stations NWS US = la source de résolution). Ailleurs
                                     #   la grille ≠ le capteur qui résout -> on gère seulement.
@@ -196,7 +199,13 @@ CONV_TP2 = 0.93                    # lock : au-dessus de ce bid, on vend tout (r
 # 15h fixe ne suffit pas -> on exige aussi que R n'ait plus monté depuis X secondes
 # avant d'autoriser une entrée (sinon on achèterait round(R) pendant que ça chauffe
 # encore, pour se faire couper 1h après).
-CONV_STABLE_SEC = 2700             # R inchangé depuis 45 min = pic confirmé
+CONV_STABLE_SEC = 3600             # R inchangé depuis 1 h = pic confirmé (données horaires :
+                                   #   45 min ne couvraient même pas un cycle METAR complet)
+# VETO DU MARCHÉ (humilité, leçon 0/504 + 0/4) : si le marché cote notre tranche
+# à presque rien alors qu'on la croit gagnante, c'est NOUS qui avons tort (donnée
+# fantôme, station différente...). On sort tant qu'un acheteur existe, au lieu de
+# rouler jusqu'à 0 (les 3 pertes du 01/07 sont des RESOLVE à 0.000).
+CONV_MARKET_VETO = 0.10            # bid <= ce seuil (et coût >= 0.25) -> vente immédiate
 CONV_FLATTEN_LOCAL_HOUR = 20.0     # liquidation TOTALE passé cette heure locale (jamais de résolution)
 CONV_KELLY = 0.25                  # Kelly fractionnaire sur l'edge de convergence
 CONV_STAKE_MIN_USDC = 2.0

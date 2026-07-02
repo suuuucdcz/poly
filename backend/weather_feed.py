@@ -23,6 +23,16 @@ ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 NWS_URL = "https://api.weather.gov/stations/{sid}/observations?limit=160"
 METNO_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={lat}&lon={lon}"
+# METAR bruts (mondial, gratuit) — la donnée MÊME que Wunderground convertit
+# pour résoudre les marchés température.
+METAR_URL = "https://aviationweather.gov/api/data/metar?ids={ids}&format=json&hours=30"
+# METAR bruts (aviationweather.gov) : le CORPS des METAR est la donnée que
+# Wunderground affiche — donc LA source de résolution des marchés US.
+METAR_URL = "https://aviationweather.gov/api/data/metar?ids={ids}&format=json&hours=36"
+METAR_HEADERS = {
+    "User-Agent": "polyquant-paper/1.0 (github.com/suuuucdcz/poly; catesson.maxence19@gmail.com)",
+    "Accept": "application/json",
+}
 
 # api.weather.gov EXIGE un User-Agent identifiant (contact) — un UA « navigateur »
 # depuis une IP datacenter (Render) se fait rejeter par leur CDN.
@@ -274,6 +284,96 @@ class WeatherFeed:
             return out
         except Exception:
             return cached[0] if cached else {}
+
+    # ------------------------------------------------------------
+    # MAX RÉALISÉ — CORPS DES METAR (= ce que Wunderground affiche,
+    # donc LA donnée qui résout les marchés US)
+    # ------------------------------------------------------------
+    async def metar_max_today(self, icao, local_date, utc_offset, unit="celsius"):
+        """Max du jour LOCAL lu dans le CORPS des METAR, arrondi PAR RELEVÉ comme
+        l'affiche Wunderground (34.4°C -> 94°F ; max journalier = max des valeurs
+        affichées). Vérifié sur les résolutions du 1er juillet : corps-METAR = la
+        tranche gagnante sur 3/3 stations, là où le flux api.weather.gov lisait
+        jusqu'à 2°F de trop (données continues hors-METAR) et où le groupe max-6h
+        des remarques sur-estime (Wunderground ne l'utilise pas).
+        None si indisponible."""
+        if not icao or not local_date:
+            return None
+        now = time.time()
+        key = ("metar", icao)
+        cached = self._nws_cache.get(key)
+        if cached and now - cached[1] < 240:
+            data = cached[0]
+        else:
+            try:
+                data = await self._get(METAR_URL.format(ids=icao), headers=METAR_HEADERS)
+                self._nws_cache[key] = (data, now)
+            except Exception:
+                return None
+        import datetime as _dt
+        best = None
+        for ob in (data or []):
+            t = ob.get("obsTime")
+            c = ob.get("temp")
+            if t is None or c is None:
+                continue
+            try:
+                loc = (_dt.datetime.fromtimestamp(int(t), _dt.timezone.utc)
+                       + _dt.timedelta(seconds=utc_offset))
+            except Exception:
+                continue
+            if loc.strftime("%Y-%m-%d") != local_date:
+                continue
+            f = round(float(c) * 9.0 / 5.0 + 32.0) if unit == "fahrenheit" else round(float(c))
+            best = f if best is None else max(best, f)
+        return float(best) if best is not None else None
+
+    # ------------------------------------------------------------
+    # MAX RÉALISÉ — CORPS DES METAR HORAIRES (grade « résolution »)
+    # ------------------------------------------------------------
+    async def metar_max_today(self, icao, local_date, utc_offset, unit="celsius"):
+        """Max du jour LOCAL lu dans le CORPS des METAR (°C ENTIER, ex. « 35/19 »)
+        — la donnée même que Wunderground affiche et sur laquelle les marchés se
+        résolvent. PAS les relevés infra-horaires en dixièmes d'api.weather.gov :
+        prouvé sur Dallas 01/07 — ils lisaient 96.8°F (obs 5 min, QC=V) quand le
+        max officiel Wunderground était 95.0°F -> pari « certain »... perdu.
+        None si indisponible."""
+        if not icao or not local_date:
+            return None
+        import datetime as _dt
+        import re as _re
+        now = time.time()
+        cached = self._nws_cache.get(("metar", icao))
+        if cached and now - cached[1] < 240:
+            data = cached[0]
+        else:
+            try:
+                data = await self._get(METAR_URL.format(ids=icao), headers=NWS_HEADERS)
+                self._nws_cache[("metar", icao)] = (data, now)
+            except Exception:
+                return None
+        best = None
+        for m in data or []:
+            raw = m.get("rawOb") or ""
+            ts = m.get("obsTime")
+            if not raw or ts is None:
+                continue
+            try:
+                local = _dt.datetime.utcfromtimestamp(int(ts)) + _dt.timedelta(seconds=utc_offset)
+                if local.strftime("%Y-%m-%d") != local_date:
+                    continue
+            except Exception:
+                continue
+            # groupe température du corps (avant les remarques) : « 35/19 », « M05/M12 »
+            body = raw.split(" RMK")[0] + " "
+            g = _re.search(r"\s(M?\d{2})/(M?\d{2})?\s", body)
+            if not g:
+                continue
+            c = float(g.group(1).replace("M", "-"))
+            best = c if best is None else max(best, c)
+        if best is None:
+            return None
+        return best * 1.8 + 32.0 if unit == "fahrenheit" else best
 
     # ------------------------------------------------------------
     # MAX RÉALISÉ — CAPTEUR OFFICIEL NWS (villes US)

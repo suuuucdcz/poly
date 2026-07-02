@@ -34,7 +34,7 @@ import datetime as _dt
 import time
 
 from backend import config, db
-from backend.cities import NWS_STATIONS, region_of, resolve_city
+from backend.cities import METAR_STATIONS, region_of, resolve_city
 from backend.weather_feed import WeatherFeed
 from backend.weather_model import (
     _bucket_bounds,
@@ -95,16 +95,19 @@ class WeatherConvergenceStrategy(Strategy):
     # ------------------------------------------------------------
     # Max courant `R` (running max) + heure locale + date locale
     # ------------------------------------------------------------
-    async def _running_max(self, city, lat, lon, om_unit, local_date, offset):
+    async def _running_max(self, icao, lat, lon, om_unit, local_date, offset):
         """Max courant `R` lu au CAPTEUR (la VALEUR seule ; l'horloge, elle, vient du
-        marché via gameStartTime). NWS d'abord (villes US = la source de résolution
-        Wunderground/METAR), sinon grille Open-Meteo pour ce jour local.
-        (None, None) si indisponible."""
-        station = NWS_STATIONS.get(city)
-        if station:
-            nws_R = await self.feed.nws_max_today(station, local_date, int(offset), om_unit)
-            if nws_R is not None:
-                return nws_R, "station"
+        marché via gameStartTime). CORPS des METAR horaires de LA station de
+        résolution (icao extrait de la description du marché) — la donnée même que
+        Wunderground convertit pour résoudre. SURTOUT PAS les observations
+        infra-horaires d'api.weather.gov : elles lisent 1-2°F plus chaud que le
+        METAR horaire (Dallas 01/07 : 96.8 lu vs 95.0 officiel -> pari perdu) et
+        leur jitter en dixièmes réarmait sans cesse le chrono de stabilité.
+        Sinon grille Open-Meteo pour ce jour local. (None, None) si indisponible."""
+        if icao:
+            m = await self.feed.metar_max_today(icao, local_date, int(offset), om_unit)
+            if m is not None:
+                return m, "metar"
         grid_R, grid_date, _off = await self.feed.realized_today(lat, lon, om_unit)
         if grid_R is not None and grid_date == local_date:
             return grid_R, "grille"
@@ -200,9 +203,14 @@ class WeatherConvergenceStrategy(Strategy):
             # UNIQUEMENT le jour de résolution : après minuit local, local_date pointe
             # sur le lendemain -> lire R donnerait le max d'un AUTRE jour. Une position
             # tenue au-delà se liquide via la règle 'jour passé' ci-dessous.
+            # Station de résolution : celle que LE MARCHÉ déclare (description),
+            # sinon le registre local (vérifié villes US + EGLC/ZGGG). NYC nous a
+            # appris la leçon : le registre disait Central Park, le marché résout
+            # à LaGuardia — 2°F d'écart, certitude fausse.
+            icao = ev.get("icao") or METAR_STATIONS.get(city)
             R, R_src = (None, None)
             if is_today and local_date is not None and offset is not None:
-                R, R_src = await self._running_max(city, lat, lon, om_unit, local_date, offset)
+                R, R_src = await self._running_max(icao, lat, lon, om_unit, local_date, offset)
 
             # --- Confirmation du pic : R doit avoir cessé de monter ---
             r_stable = False
@@ -239,10 +247,15 @@ class WeatherConvergenceStrategy(Strategy):
             # = exactement ce qui a fait 0/504. Pré-pic -> on observe, on n'entre pas.
             post_peak = (local_hour is not None and local_hour >= cfg.CONV_PEAK_HOUR)
             # + r_stable : le pic réel varie (LA/Phoenix ~16-17h). Entrer à 15h05
-            # pendant que ça chauffe encore = achats de round(R) coupés 1h après.
+            # pendant que ça chauffe encore = achats de round(R) coupés 1h après
+            # (Denver 01/07 : acheté 88-89 à 16h43, gagnant 90-91 ; Atlanta 02/07 :
+            # +1.8°F APRÈS 45 min de plateau).
+            # Entrées : UNIQUEMENT si on lit la station de résolution elle-même
+            # (R_src == "metar"). Une lecture grille ≈ 10-25 km de maille ne prouve
+            # rien sur le capteur officiel.
             entries_ok = (is_today and R is not None and post_peak and r_stable
                           and not past_flatten
-                          and ((not cfg.CONV_ENTRIES_NWS_ONLY) or city in NWS_STATIONS))
+                          and ((not cfg.CONV_ENTRIES_NWS_ONLY) or R_src == "metar"))
 
             held_count = len(held_here)
             slots_left = max(0, cfg.CONV_MAX_BUCKETS_PER_MARKET - held_count)
@@ -294,6 +307,13 @@ class WeatherConvergenceStrategy(Strategy):
                             reason, sell_frac = "coupe", 1.0            # perdant : on coupe
                         elif flatten:
                             reason, sell_frac = "clôture", 1.0          # liquidation soir
+                        elif (bid <= cfg.CONV_MARKET_VETO
+                                and pos["avg_price"] >= 0.25):
+                            # VETO MARCHÉ : on a payé cher, le marché dit ~zéro.
+                            # L'historique (0/504, 0/4) dit que c'est lui qui a
+                            # raison (notre donnée peut être fantôme) -> on sauve
+                            # ce qui peut l'être au lieu de rouler jusqu'à 0.
+                            reason, sell_frac = "veto-marché", 1.0
                         elif bid >= cfg.CONV_TP2:
                             reason, sell_frac = "lock", 1.0             # convergence faite
                         elif fair is not None and fair < cfg.CONV_FAIR_CUT:
