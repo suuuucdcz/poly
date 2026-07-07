@@ -184,8 +184,17 @@ CONV_ENTRIES_NWS_ONLY = True        # PRUDENT : n'entrer que là où on lit le c
 CONV_MIN_FAIR = 0.60               # proba conditionnée mini pour juger le gagnant « connu »
                                    #   (0.60 : on évite les cas ambigus au bord du .5 d'arrondi)
 CONV_EDGE = 0.06                   # (juste − ask) mini pour entrer (le marché sous-évalue)
-CONV_MIN_ENTRY = 0.12              # ne pas acheter la poussière
+# Verdict empirique (07/07) : les entrées EN ACCORD avec le marché gagnent
+# (Tokyo 0.79 +1.09$, Qingdao 0.89 +0.40$), les entrées qui LE DÉFIENT meurent
+# (Chengdu 0.12 -> 0, -8.18$ : le marché voyait la température monter en direct,
+# nous on lit des METAR horaires). Le marché doit déjà y croire.
+CONV_MIN_ENTRY = 0.30              # ne pas acheter contre le marché
 CONV_MAX_ENTRY = 0.90              # ne pas surpayer une convergence déjà faite
+# Écart maxi toléré entre notre proba et le prix : un vrai retard de marché vaut
+# des centimes, pas 0.85. Au-delà, c'est NOTRE donnée qui est suspecte (pic tardif
+# vu en temps réel par le marché, station...) -> on passe. Ferme aussi l'angle
+# mort du veto-marché (les entrées >= 0.30 sont toutes couvertes par avg >= 0.25).
+CONV_MAX_DIVERGENCE = 0.40
 CONV_SIGMA_PASTPEAK = 0.20         # σ après le pic, en DEGRÉS-MARCHÉ (arrondi/lecture) — petit = confiant
 CONV_SIGMA_PRE_C = 1.4             # σ avant le pic (°C, physique) — on s'appuie encore sur la prévision
 CONV_SIGMA_EVENING_DECAY = 0.02    # σ diminue de ce montant par heure après le pic (plus sûr le soir)

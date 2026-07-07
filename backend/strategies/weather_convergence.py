@@ -360,8 +360,12 @@ class WeatherConvergenceStrategy(Strategy):
                     ask_disp = b["yes_price"]
                     edge = fair - ask_disp - ctx.risk.taker_fee(ask_disp)   # net des frais d'entrée
                     row["edge"] = round(edge, 3)
+                    # GARDE DE DIVERGENCE : un vrai retard de marché vaut des centimes.
+                    # fair 0.99 vs prix 0.12 (Chengdu 07/07) = le marché voit la
+                    # température monter en direct, pas nous -> on passe.
                     if (cfg.CONV_MIN_ENTRY <= ask_disp <= cfg.CONV_MAX_ENTRY
-                            and edge >= cfg.CONV_EDGE):
+                            and edge >= cfg.CONV_EDGE
+                            and (fair - ask_disp) <= cfg.CONV_MAX_DIVERGENCE):
                         candidates.append((b, fair))
                 if fair is not None and row["edge"] is None:
                     row["edge"] = round(fair - b["yes_price"], 3)
@@ -388,6 +392,8 @@ class WeatherConvergenceStrategy(Strategy):
                 edge = fair - ask - fee_ps                # edge NET de frais
                 if edge < cfg.CONV_EDGE:
                     continue
+                if (fair - ask) > cfg.CONV_MAX_DIVERGENCE:
+                    continue                              # re-vérifié au vrai ask du carnet
                 f = edge / (1.0 - ask) if ask < 1.0 else 0.0
                 if f <= 0:
                     continue
