@@ -17,7 +17,7 @@
     <meta name="apple-mobile-web-app-title" content="PolyQuant">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <link rel="icon" type="image/png" href="/static/icon-192.png">
-    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="stylesheet" href="/static/style.css?v=11">
 </head>
 <body>
 <div class="app">
@@ -66,12 +66,18 @@
         <div class="panel">
             <div class="panel-head">
                 <h2>Performance</h2>
-                <span class="legend">
-                    <span class="lg"><i class="sw sw-total"></i>Valeur totale</span>
-                    <span class="lg"><i class="sw sw-cash"></i>Cash</span>
-                </span>
+                <div class="range-row" id="chart-ranges">
+                    <button class="fchip" data-range="day">24 h</button>
+                    <button class="fchip" data-range="week">7 j</button>
+                    <button class="fchip active" data-range="all">Tout</button>
+                </div>
             </div>
             <div id="equityChart" class="chart"></div>
+            <div class="legend chart-legend">
+                <span class="lg"><i class="sw sw-up"></i>Au-dessus du budget</span>
+                <span class="lg"><i class="sw sw-down"></i>En dessous</span>
+                <span class="lg"><i class="sw sw-cash"></i>Cash</span>
+            </div>
         </div>
 
         <div class="engines">
@@ -150,6 +156,6 @@
     </section>
 
 </div>
-<script src="/static/app.js?v=10"></script>
+<script src="/static/app.js?v=11"></script>
 </body>
 </html>

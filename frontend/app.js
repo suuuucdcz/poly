@@ -15,13 +15,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
     // ===================== ÉTAT =====================
-    let chart = null, sTotal = null, sCash = null;
+    let chart = null, sTotal = null, sCash = null, budgetLine = null;
+    let initialBudget = 1000;
+    let equityRows = [];          // [{time, value, cash}] — pour les boutons de période
+    let chartRange = "all";
     let lastLogsKey = "", lastPosKey = "", lastTradesKey = "", lastEquityKey = "", lastWeatherKey = "";
     let journalFilter = "all";
     let cachedTrades = [], cachedTotals = null;
     let botRunning = null;
 
     // ===================== GRAPHIQUE =====================
+    // Courbe « baseline » ancrée sur le budget initial : VERT au-dessus (gain),
+    // ROUGE en dessous (perte) — lisible d'un coup d'œil, surtout sur téléphone.
     function initChart() {
         const el = $("equityChart");
         if (!el || typeof LightweightCharts === "undefined") return;
@@ -34,15 +39,45 @@ document.addEventListener("DOMContentLoaded", () => {
             autoSize: true,
             handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
         });
-        sTotal = chart.addAreaSeries({
-            lineColor: "#4fa3ff", lineWidth: 2,
-            topColor: "rgba(79,163,255,0.22)", bottomColor: "rgba(79,163,255,0.01)",
+        sTotal = chart.addBaselineSeries({
+            baseValue: { type: "price", price: initialBudget },
+            topLineColor: "#34d399",
+            topFillColor1: "rgba(52,211,153,0.26)",
+            topFillColor2: "rgba(52,211,153,0.02)",
+            bottomLineColor: "#ff6b6b",
+            bottomFillColor1: "rgba(255,107,107,0.02)",
+            bottomFillColor2: "rgba(255,107,107,0.24)",
+            lineWidth: 2,
             priceLineVisible: false, lastValueVisible: true,
         });
         sCash = chart.addLineSeries({
             color: "#5d6880", lineWidth: 1, lineStyle: 2,
             priceLineVisible: false, lastValueVisible: false,
         });
+        budgetLine = sTotal.createPriceLine({
+            price: initialBudget, color: "#5d6880", lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed, title: "budget",
+        });
+    }
+
+    function setBudgetAnchor(budget) {
+        if (!sTotal || !budget || budget === initialBudget) return;
+        initialBudget = budget;
+        sTotal.applyOptions({ baseValue: { type: "price", price: budget } });
+        if (budgetLine) sTotal.removePriceLine(budgetLine);
+        budgetLine = sTotal.createPriceLine({
+            price: budget, color: "#5d6880", lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed, title: "budget",
+        });
+    }
+
+    function applyChartRange() {
+        if (!chart || !equityRows.length) return;
+        if (chartRange === "all") { chart.timeScale().fitContent(); return; }
+        const spans = { day: 86400, week: 7 * 86400 };
+        const to = equityRows[equityRows.length - 1].time;
+        const from = Math.max(equityRows[0].time, to - spans[chartRange]);
+        chart.timeScale().setVisibleRange({ from, to });
     }
 
     // ===================== FETCHERS =====================
@@ -69,6 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 rEl.className = "chip-v mono " + cls(cachedTotals.pnl_total);
             }
             $("chip-win").textContent = d.win_rate != null ? d.win_rate.toFixed(0) + " %" : "—";
+            setBudgetAnchor(d.initial_budget);
             renderPositions(d.positions || []);
         } catch (e) { /* réseau : on retentera */ }
     }
@@ -123,12 +159,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 const t = Math.floor(new Date(x.timestamp + "Z").getTime() / 1000);
                 if (seen.has(t)) continue;
                 seen.add(t);
-                rows.push({ t, v: x.portfolio_value, c: x.balance });
+                rows.push({ time: t, value: x.portfolio_value, cash: x.balance });
             }
-            rows.sort((a, b) => a.t - b.t);
-            sTotal.setData(rows.map(r => ({ time: r.t, value: r.v })));
-            sCash.setData(rows.map(r => ({ time: r.t, value: r.c })));
-            chart.timeScale().fitContent();
+            rows.sort((a, b) => a.time - b.time);
+            equityRows = rows;
+            sTotal.setData(rows.map(r => ({ time: r.time, value: r.value })));
+            sCash.setData(rows.map(r => ({ time: r.time, value: r.cash })));
+            applyChartRange();
         } catch (e) {}
     }
 
@@ -346,11 +383,17 @@ document.addEventListener("DOMContentLoaded", () => {
         window.dispatchEvent(new Event("resize"));
     }));
 
-    document.querySelectorAll(".fchip").forEach(chip => chip.addEventListener("click", () => {
-        document.querySelectorAll(".fchip").forEach(c => c.classList.toggle("active", c === chip));
+    document.querySelectorAll("#journal-filters .fchip").forEach(chip => chip.addEventListener("click", () => {
+        document.querySelectorAll("#journal-filters .fchip").forEach(c => c.classList.toggle("active", c === chip));
         journalFilter = chip.getAttribute("data-f");
         lastTradesKey = "";
         renderJournal();
+    }));
+
+    document.querySelectorAll("#chart-ranges .fchip").forEach(chip => chip.addEventListener("click", () => {
+        document.querySelectorAll("#chart-ranges .fchip").forEach(c => c.classList.toggle("active", c === chip));
+        chartRange = chip.getAttribute("data-range");
+        applyChartRange();
     }));
 
     $("btn-toggle-bot").addEventListener("click", async () => {

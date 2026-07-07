@@ -122,11 +122,14 @@ body {
 }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .panel-head h2 { margin: 0; font-size: 14px; font-weight: 700; }
-.legend { display: flex; gap: 12px; font-size: 11px; color: var(--ink-2); }
+.legend { display: flex; gap: 12px; font-size: 11px; color: var(--ink-2); flex-wrap: wrap; }
+.chart-legend { margin-top: 8px; justify-content: center; }
 .lg { display: inline-flex; align-items: center; gap: 5px; }
 .sw { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
-.sw-total { background: var(--blue); }
+.sw-up { background: var(--green); }
+.sw-down { background: var(--red); }
 .sw-cash { background: var(--ink-3); }
+.range-row { display: flex; gap: 5px; }
 
 .chart { height: 230px; width: 100%; }
 @media (min-width: 700px) { .chart { height: 300px; } }
