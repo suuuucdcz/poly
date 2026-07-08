@@ -29,6 +29,20 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "polyquant")
 SUPABASE_OBJECT = os.environ.get("SUPABASE_DB_OBJECT", "paper_trading.db")
 
+# État de santé exposé au dashboard (incident du 07/07 : projet Supabase en
+# pause -> chaque déploiement repartait de zéro SANS que rien ne l'affiche).
+status = {"last_ok": None, "last_error": None}
+
+
+def _mark_ok():
+    from datetime import datetime
+    status["last_ok"] = datetime.utcnow().isoformat()
+    status["last_error"] = None
+
+
+def _mark_error(e):
+    status["last_error"] = f"{type(e).__name__}: {str(e)[:120]}"
+
 
 def enabled():
     return bool(SUPABASE_URL and SUPABASE_KEY)
@@ -57,14 +71,18 @@ def restore_db(db_path):
             with open(db_path, "wb") as f:
                 f.write(data)
             print(f"[persistence] base restaurée depuis Supabase ({len(data)} octets)")
+            _mark_ok()
             return True
     except urllib.error.HTTPError as e:
         if e.code == 404:
             print("[persistence] aucun snapshot distant (premier démarrage)")
+            _mark_ok()   # le service répond : la persistance fonctionne
         else:
             print(f"[persistence] restore HTTPError {e.code}")
+            _mark_error(e)
     except Exception as e:
         print(f"[persistence] restore error: {e}")
+        _mark_error(e)
     return False
 
 
@@ -96,9 +114,11 @@ def snapshot_and_upload(db_path):
         )
         with urllib.request.urlopen(req, timeout=30) as r:
             r.read()
+        _mark_ok()
         return True
     except Exception as e:
         print(f"[persistence] snapshot error: {e}")
+        _mark_error(e)
         return False
     finally:
         if tmp and os.path.exists(tmp):

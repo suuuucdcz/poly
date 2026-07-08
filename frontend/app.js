@@ -116,6 +116,16 @@ document.addEventListener("DOMContentLoaded", () => {
             $("bot-status-dot").className = "status-dot " + (botRunning ? "on" : "off");
             $("btn-toggle-bot").textContent = botRunning ? "■ Stop" : "▶ Start";
             if (d.tick_interval) $("input-interval").value = d.tick_interval;
+            // Voyant sauvegarde : visible seulement si ça va mal (désactivée en
+            // prod ou dernier essai en erreur -> un déploiement effacerait tout)
+            const p = d.persistence || {};
+            const badge = $("persist-badge");
+            if (badge) {
+                const broken = p.enabled === false || !!p.last_error;
+                badge.hidden = !broken;
+                badge.textContent = p.enabled === false ? "💾 sauvegarde OFF" : "💾 sauvegarde KO";
+                badge.title = p.last_error || "Persistance Supabase non configurée : un déploiement remet le portefeuille à zéro.";
+            }
         } catch (e) {}
     }
 

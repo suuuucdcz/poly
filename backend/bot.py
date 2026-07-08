@@ -136,7 +136,10 @@ class TradingBot:
                             pnl = settle_value - (pos["shares"] * pos["avg_price"])
                             balance += settle_value
                             db.update_balance(balance)
-                            db.add_trade(mid, question, pos["token_id"], "RESOLVE", pos["outcome"], pos["shares"], price, pnl)
+                            # question de la POSITION (conserve le tag [ARB]/[SWEEP]
+                            # dans le journal), pas celle du marché
+                            db.add_trade(mid, pos["question"] or question, pos["token_id"],
+                                         "RESOLVE", pos["outcome"], pos["shares"], price, pnl)
                             db.settle_bet(pos["token_id"], 1 if price >= 0.5 else 0, pnl)
                             db.save_position(pos["token_id"], mid, question, pos["outcome"], 0.0, 0.0, 0.0)
                             self.log(f"RESOLVED: '{question}' -> {price:.2f}. PnL: {pnl:+.2f}$", "SUCCESS" if pnl >= 0 else "WARNING")

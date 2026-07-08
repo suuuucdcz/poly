@@ -162,6 +162,9 @@ def get_bot_status():
         "is_running": bot_instance.is_running,
         "strategy": bot_instance.strategy,
         "tick_interval": bot_instance.tick_interval,
+        # Santé de la sauvegarde Supabase (incident 07/07 : projet en pause ->
+        # chaque déploiement repartait de 1000 $ sans que rien ne l'affiche)
+        "persistence": {"enabled": persistence.enabled(), **persistence.status},
     }
 
 
