@@ -358,6 +358,11 @@ class WeatherFeed:
             ts = m.get("obsTime")
             if not raw or ts is None:
                 continue
+            # SPECI exclus : prouvé sur Moscou 08/07 — un SPECI 23°C à 15h24 quand
+            # les relevés HORAIRES plafonnent à 22°C, et le marché (0.998 sur 22°C)
+            # confirme que la source de résolution ne compte que les heures pleines.
+            if (m.get("metarType") or "").upper() == "SPECI" or " SPECI " in f" {raw} ":
+                continue
             try:
                 local = _dt.datetime.utcfromtimestamp(int(ts)) + _dt.timedelta(seconds=utc_offset)
                 if local.strftime("%Y-%m-%d") != local_date:
