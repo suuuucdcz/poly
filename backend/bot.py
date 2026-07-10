@@ -76,7 +76,17 @@ class TradingBot:
             return False
         self.is_running = True
         self.log("Starting PolyQuant Weather Bot...")
-        self.active_task = asyncio.create_task(self.loop())
+        try:
+            self.active_task = asyncio.create_task(self.loop())
+        except RuntimeError as e:
+            # Appelé hors de la boucle asyncio (ex. endpoint FastAPI synchrone,
+            # exécuté dans un thread) : create_task échoue -> SANS ce rollback,
+            # is_running restait True avec AUCUNE boucle = bot zombie (30 h de
+            # gel constatées le 08-09/07 après un clic Stop/Start).
+            self.is_running = False
+            self.active_task = None
+            self.log(f"Démarrage impossible (pas de boucle asyncio ici): {e}", "ERROR")
+            return False
         return True
 
     def stop(self):

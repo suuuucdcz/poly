@@ -60,12 +60,28 @@ async def _snapshot_loop():
             pass
 
 
+async def _watchdog_loop():
+    """Chien de garde : si le bot se croit démarré mais que sa boucle est morte
+    (tâche jamais créée, crash silencieux...), on la ressuscite. Leçon du gel
+    de 30 h des 08-09/07 : un zombie ne se signale pas tout seul."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            t = bot_instance.active_task
+            if bot_instance.is_running and (t is None or t.done()):
+                bot_instance.log("WATCHDOG: boucle morte détectée — redémarrage automatique.", "WARNING")
+                bot_instance.active_task = asyncio.create_task(bot_instance.loop())
+        except Exception:
+            pass
+
+
 @app.on_event("startup")
 async def startup_event():
     # Restaure la base depuis Supabase Storage si configuré (AVANT init_db)
     persistence.restore_db(db.DB_FILE)
     db.init_db()
     bot_instance.start()
+    asyncio.create_task(_watchdog_loop())
     if persistence.enabled():
         asyncio.create_task(_snapshot_loop())
 
@@ -168,14 +184,17 @@ def get_bot_status():
     }
 
 
+# ASYNC obligatoire : un endpoint synchrone tourne dans un thread FastAPI où
+# asyncio.create_task échoue -> le Start fabriquait un bot zombie (is_running
+# True, aucune boucle). Cause du gel de 30 h du 08-09/07.
 @app.post("/api/bot/start")
-def start_bot():
+async def start_bot():
     success = bot_instance.start()
     return {"status": "success" if success else "already_running"}
 
 
 @app.post("/api/bot/stop")
-def stop_bot():
+async def stop_bot():
     success = bot_instance.stop()
     return {"status": "success" if success else "already_stopped"}
 
