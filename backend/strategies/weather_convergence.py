@@ -455,5 +455,5 @@ class WeatherConvergenceStrategy(Strategy):
             ctx.ui_state["diag"] = {
                 "last_net_error": self.feed.last_error,
                 "engine": "convergence",
-                "station_realized": sum(1 for s in signals if s.get("realized_src") == "station"),
+                "station_realized": sum(1 for s in signals if s.get("realized_src") == "metar"),
             }
