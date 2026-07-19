@@ -158,13 +158,27 @@ class TradingBot:
                 except Exception as e:
                     self.log(f"Error checking market {mid}: {e}", "WARNING")
 
-        # 2. Snapshot d'equity
+        # 2. Snapshot d'equity + écrémage éventuel
         portfolio = db.get_portfolio()
         balance = portfolio["balance"]
         positions = db.get_positions()
         positions_value = sum(p["shares"] * p["current_price"] for p in positions)
         portfolio_value = balance + positions_value
-        db.record_equity_snapshot(portfolio_value)
+
+        # Écrémage automatique AVANT le snapshot ; la courbe enregistre la
+        # RICHESSE TOTALE (equity + banque) -> jamais de fausse falaise le jour
+        # d'un écrémage.
+        bank = db.get_bank()
+        wealth = portfolio_value + bank["total"]
+        try:
+            skimmed = self._bank_check(balance, portfolio_value, bank, wealth)
+            if skimmed:
+                portfolio_value -= skimmed
+                balance -= skimmed
+        except Exception as e:
+            self.log(f"BANQUE: erreur écrémage: {e}", "WARNING")
+        db.update_bank_hwm(wealth)
+        db.record_equity_snapshot(portfolio_value + db.get_bank()["total"])
 
         self.log(f"Tick (Val: {portfolio_value:.2f}$ | Cash: {balance:.2f}$ | Pos: {len(positions)})")
 
@@ -189,6 +203,33 @@ class TradingBot:
             await self.sweep.run(ctx, [], balance, portfolio_value)
         except Exception as e:
             self.log(f"SWEEP: erreur: {e}", "WARNING")
+
+    # ============================================================
+    # ÉCRÉMAGE DES PROFITS (règle bancaire — voir config)
+    # ============================================================
+    def _bank_check(self, balance, equity, bank, wealth):
+        """Écrème les profits vers la banque si TOUTES les conditions sont
+        réunies : (1) pas déjà écrémé ce mois calendaire, (2) richesse totale
+        au PLUS HAUT historique (jamais en plein creux), (3) montant ≥ minimum
+        (jamais de miettes), (4) le capital de travail reste intact et on ne
+        prend que du CASH disponible. Renvoie le montant écrémé (0 sinon)."""
+        if not getattr(config, "BANK_AUTO", False):
+            return 0.0
+        now = datetime.utcnow()
+        if (bank["last_skim"] or "")[:7] == now.strftime("%Y-%m"):
+            return 0.0                          # déjà écrémé ce mois-ci
+        if wealth < bank["hwm"] - 1e-9:
+            return 0.0                          # pas au plus haut -> on attend
+        skim = round(min(balance, equity - config.BANK_KEEP_WORKING), 2)
+        if skim < config.BANK_MIN_SKIM:
+            return 0.0
+        db.bank_skim(skim, wealth)
+        self.log(
+            f"ÉCRÉMAGE: {skim:.2f}$ mis en banque (banque totale: {bank['total'] + skim:.2f}$ | "
+            f"capital de travail conservé: {equity - skim:.2f}$)",
+            "SUCCESS",
+        )
+        return skim
 
     # ============================================================
     # PURGE DES PARIS DE L'ANCIEN MODÈLE (action unique, sur demande)

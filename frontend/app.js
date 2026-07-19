@@ -90,12 +90,18 @@ document.addEventListener("DOMContentLoaded", () => {
     async function fetchPortfolio() {
         try {
             const d = await jget("/api/portfolio");
-            $("val-equity").textContent = fmt$(d.total_valuation);
+            // grand chiffre = RICHESSE TOTALE (portefeuille + banque d'écrémage)
+            $("val-equity").textContent = fmt$(d.wealth != null ? d.wealth : d.total_valuation);
             const roi = d.roi || 0;
             const roiEl = $("val-roi");
             roiEl.textContent = (roi >= 0 ? "+" : "") + roi.toFixed(2) + " %";
             roiEl.className = "pill mono " + cls(roi);
             $("chip-cash").textContent = fmt$(d.balance);
+            const bkEl = $("chip-bank");
+            if (bkEl) {
+                bkEl.textContent = fmt$(d.bank || 0);
+                bkEl.className = "chip-v mono" + ((d.bank || 0) > 0 ? " up" : "");
+            }
             const latent = (d.positions || []).reduce((a, p) => a + p.shares * (p.current_price - p.avg_price), 0);
             const latEl = $("chip-latent"); latEl.textContent = fmtSigned(latent); latEl.className = "chip-v mono " + cls(latent);
             if (cachedTotals) {

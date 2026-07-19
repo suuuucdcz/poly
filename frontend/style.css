@@ -82,7 +82,7 @@ body {
 .pill.up { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
 .pill.down { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 
-.chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 8px; margin-top: 12px; }
 .chip {
     background: color-mix(in srgb, var(--bg) 55%, transparent);
     border: 1px solid var(--border); border-radius: 10px;

@@ -110,7 +110,11 @@ def get_portfolio():
         locked_profit = guaranteed_payout - guaranteed_cost
 
         initial_budget = portfolio["initial_budget"]
-        total_return = total_valuation - initial_budget
+        # Richesse totale = portefeuille + banque d'écrémage (profits mis de côté).
+        # Le ROI affiché se calcule sur la richesse : un écrémage ne « perd » rien.
+        bank = db.get_bank()
+        wealth = total_valuation + bank["total"]
+        total_return = wealth - initial_budget
         roi = (total_return / initial_budget) * 100 if initial_budget > 0 else 0.0
 
         # Agrégats vie entière (la fenêtre des 100 derniers trades mentirait)
@@ -122,6 +126,8 @@ def get_portfolio():
             "initial_budget": initial_budget,
             "positions_value": positions_value,
             "total_valuation": total_valuation,
+            "bank": bank["total"],
+            "wealth": wealth,
             "roi": roi,
             "total_return": total_return,
             "locked_profit": locked_profit,

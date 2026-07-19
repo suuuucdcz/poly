@@ -252,3 +252,17 @@ SWEEP_MAX_PRICE = 0.97        # sous ce prix il reste des centimes à rafler
 SWEEP_MIN_EDGE = 0.02         # profit net mini (1 − ask − frais)
 SWEEP_STAKE_MAX_USDC = 25.0   # par marché
 SWEEP_MAX_TOTAL_USDC = 300.0  # capital total immobilisé (résolution le matin)
+
+# ============================================================
+# ÉCRÉMAGE DES PROFITS (« banque » virtuelle)
+# ============================================================
+# Les gains du système sont plafonnés par la PROFONDEUR DU MARCHÉ (paniers
+# limités par les carnets + plafonds de mise), pas par le capital : au-delà du
+# capital de travail, l'argent dort. On écrème donc les profits vers une
+# « banque » (virtuelle en paper) au lieu de tout laisser composer.
+# Règle : au plus 1 fois par mois calendaire, uniquement au PLUS HAUT historique
+# de la richesse totale (equity + banque), minimum 50 $, en conservant toujours
+# le capital de travail. Jamais d'écrémage en plein creux, jamais de miettes.
+BANK_AUTO = True
+BANK_KEEP_WORKING = 500.0     # capital de travail conservé dans le portefeuille
+BANK_MIN_SKIM = 50.0          # écrémage minimum (en dessous = bruit, on attend)

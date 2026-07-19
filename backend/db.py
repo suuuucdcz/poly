@@ -114,6 +114,26 @@ def init_db(default_budget=1000.0):
         except sqlite3.OperationalError:
             pass
 
+        # « Banque » d'écrémage : profits mis de côté (virtuels en paper) +
+        # plus haut historique de la richesse totale (equity + banque)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bank (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            total REAL NOT NULL DEFAULT 0,
+            hwm REAL NOT NULL DEFAULT 0,
+            last_skim TEXT
+        )
+        """)
+        cursor.execute("INSERT OR IGNORE INTO bank (id, total, hwm, last_skim) VALUES (1, 0, 0, NULL)")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bank_ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            amount REAL NOT NULL,
+            wealth REAL NOT NULL
+        )
+        """)
+
         # Biais grille<->station officielle appris des marchés résolus (par ville)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS city_bias (
@@ -153,6 +173,12 @@ def reset_portfolio(budget):
         # l'ancien modèle) pour un VRAI départ propre du moteur convergence.
         try:
             cursor.execute("DELETE FROM bet_log")
+        except sqlite3.OperationalError:
+            pass
+        # Banque d'écrémage remise à zéro (vrai départ propre)
+        try:
+            cursor.execute("UPDATE bank SET total = 0, hwm = 0, last_skim = NULL WHERE id = 1")
+            cursor.execute("DELETE FROM bank_ledger")
         except sqlite3.OperationalError:
             pass
 
@@ -378,6 +404,39 @@ def settle_bet(token_id, won, pnl):
             "UPDATE bet_log SET settled = 1, won = ?, pnl = ? WHERE id = ?",
             (won_val, pnl, row["id"]),
         )
+        conn.commit()
+
+
+def get_bank():
+    """{total, hwm, last_skim} — la banque d'écrémage."""
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT total, hwm, last_skim FROM bank WHERE id = 1").fetchone()
+            if row:
+                return {"total": row["total"] or 0.0, "hwm": row["hwm"] or 0.0,
+                        "last_skim": row["last_skim"]}
+    except sqlite3.OperationalError:
+        pass
+    return {"total": 0.0, "hwm": 0.0, "last_skim": None}
+
+
+def update_bank_hwm(wealth):
+    """Met à jour le plus haut historique de richesse totale (equity + banque)."""
+    with get_db() as conn:
+        conn.execute("UPDATE bank SET hwm = MAX(hwm, ?) WHERE id = 1", (wealth,))
+        conn.commit()
+
+
+def bank_skim(amount, wealth):
+    """Écrème `amount` du cash vers la banque — ATOMIQUE (une seule transaction :
+    débit du portefeuille + crédit banque + ligne de journal)."""
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        conn.execute("UPDATE portfolio SET balance = balance - ? WHERE id = 1", (amount,))
+        conn.execute("UPDATE bank SET total = total + ?, last_skim = ?, hwm = MAX(hwm, ?) WHERE id = 1",
+                     (amount, now, wealth))
+        conn.execute("INSERT INTO bank_ledger (timestamp, amount, wealth) VALUES (?, ?, ?)",
+                     (now, amount, wealth))
         conn.commit()
 
 

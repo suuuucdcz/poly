@@ -1,10 +1,10 @@
 /* Service worker PWA — coque en cache (chargement instantané, même au réveil de
    Render), mais données /api/ TOUJOURS en réseau (jamais périmées). */
-const CACHE = "polyquant-v12";
+const CACHE = "polyquant-v13";
 const SHELL = [
   "/",
-  "/static/style.css?v=12",
-  "/static/app.js?v=12",
+  "/static/style.css?v=13",
+  "/static/app.js?v=13",
   "/static/icon-192.png",
   "/static/icon-512.png",
   "/manifest.webmanifest"
